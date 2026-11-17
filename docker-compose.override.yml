@@ -13,7 +13,7 @@ services:
         BUILD_SHA: ${BUILD_SHA:-dev}
         BUILD_DATE: ${BUILD_DATE:-}
     ports:
-      - "127.0.0.1:5000:5000" # hit the app directly, bypassing nginx
+      - "127.0.0.1:5003:5000" # hit the app directly, bypassing nginx
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-debug}
 

@@ -7,7 +7,7 @@
 
 COMPOSE      ?= docker compose
 COMPOSE_PROD ?= docker compose -f docker-compose.yml -f docker-compose.prod.yml
-PORT         ?= 8080
+PORT         ?= 8082
 UI_URL       ?= http://127.0.0.1:5000
 
 help: ## Show this help
