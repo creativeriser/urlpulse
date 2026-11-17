@@ -1,0 +1,26 @@
+# Keep the build context small and free of secrets
+node_modules
+coverage
+npm-debug.log*
+.git
+.github
+.env
+.env.*
+!.env.example
+*.md
+!package.json
+docs
+tests
+k8s
+monitoring
+nginx
+Makefile
+docker-compose*.yml
+Dockerfile
+.dockerignore
+.editorconfig
+.nvmrc
+eslint.config.js
+jest*.config.js
+*.zip
+*.log

@@ -1,0 +1,156 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urlpulse
+  labels:
+    app.kubernetes.io/name: urlpulse
+    app.kubernetes.io/component: app
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never remove a pod before its replacement is Ready: zero-downtime deploys
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: urlpulse
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: urlpulse
+        app.kubernetes.io/component: app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: /metrics
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # the "node" user in the image
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: urlpulse
+              app.kubernetes.io/component: app
+      containers:
+        - name: app
+          image: urlpulse # rewritten to your Docker Hub image by kustomization.yaml
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: urlpulse-config
+          env:
+            # Secrets are mapped one by one so the app never sees MONGO_ROOT_PASSWORD as a separate variable
+            - name: HASH_SALT
+              valueFrom:
+                secretKeyRef: { name: urlpulse-secrets, key: HASH_SALT }
+            - name: METRICS_TOKEN
+              valueFrom:
+                secretKeyRef: { name: urlpulse-secrets, key: METRICS_TOKEN }
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef: { name: urlpulse-secrets, key: MONGO_URI }
+          # Startup: give a cold pod up to 60s (liveness is held off until this passes)
+          startupProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          # Liveness: dependency-free on purpose. A MongoDB outage must not restart healthy app pods.
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # Readiness: dependency-aware. 503 (database down, or draining on SIGTERM) removes the pod from
+          # the Service. DEGRADED (Redis down) answers 200 because redirects still work from MongoDB.
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              # Let the endpoint removal propagate before SIGTERM starts the app's own graceful drain
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urlpulse
+  labels:
+    app.kubernetes.io/name: urlpulse
+spec:
+  selector:
+    app.kubernetes.io/name: urlpulse
+    app.kubernetes.io/component: app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: urlpulse
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: urlpulse
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300 # avoid flapping after a traffic spike
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: urlpulse
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: urlpulse
+      app.kubernetes.io/component: app

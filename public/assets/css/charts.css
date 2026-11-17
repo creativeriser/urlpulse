@@ -1,0 +1,104 @@
+/* ==========================================================================
+   Chart styles (column chart, bar lists, heartbeat trace chrome).
+   One series colour (--pulse); grid and axes are recessive hairlines.
+   ========================================================================== */
+
+.chart-box {
+  position: relative;
+  width: 100%;
+  min-height: 3rem;
+}
+
+.chart {
+  display: block;
+  overflow: visible;
+}
+
+.chart .grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart .axis {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.chart .tick {
+  fill: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart .bar {
+  fill: var(--pulse);
+  transition: fill var(--dur-fast);
+}
+
+.chart .col:hover .bar {
+  fill: var(--pulse-strong);
+}
+
+.chart .hit {
+  fill: transparent;
+}
+
+.chart .peak {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart .empty {
+  fill: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Horizontal bar list */
+
+.bars {
+  display: grid;
+  gap: var(--s-1);
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, 8.5rem) minmax(0, 1fr) 3.25rem;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 1.875rem;
+  font-size: var(--step--1);
+}
+
+.bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.bar-track {
+  height: 10px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  width: var(--w, 0%);
+  min-width: 2px;
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  background: var(--pulse);
+  transition: background-color var(--dur-fast);
+}
+
+.bar-row:hover .bar-fill {
+  background: var(--pulse-strong);
+}
+
+.bar-val {
+  text-align: right;
+  font-weight: 640;
+  color: var(--ink);
+}

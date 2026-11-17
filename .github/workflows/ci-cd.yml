@@ -1,0 +1,309 @@
+# ---------------------------------------------------------------------------
+# URLPulse CI/CD
+#
+#   test    lint + unit/integration tests (Node 22 and 24) + e2e against real
+#           MongoDB and Redis service containers + dependency audit
+#   image   build the production image, gate on Trivy (fail on CRITICAL),
+#           then run the container and smoke-test it
+#   publish multi-arch image to Docker Hub (push to main and version tags only)
+#   deploy  SSH to the server, run scripts/deploy.sh (with rollback), smoke-test
+#           the public URL. Opt-in: set the repository variable DEPLOY_ENABLED=true
+#
+# Required secrets:   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+# Deploy secrets:     DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS
+# Repository variables (Settings > Variables):
+#   DEPLOY_ENABLED=true, DEPLOY_PATH=/opt/urlpulse, PUBLIC_URL=https://pulse.example.com
+#   ENABLE_CODE_SCANNING=true   upload Trivy results to the Security tab (needs a public repo
+#                               or GitHub Code Security)
+# Full setup guide: DOCUMENTATION.md, section "CI/CD".
+# ---------------------------------------------------------------------------
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push cancels an older run for the same ref, except for main and tags,
+# where every commit must finish (a half-finished publish is worse than a queue).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    services:
+      mongo:
+        image: mongo:8
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "echo 'db.runCommand({ping:1}).ok' | mongosh --quiet | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and integration tests (with coverage thresholds)
+        run: npm run test:coverage
+
+      - name: End-to-end tests (real MongoDB and Redis)
+        env:
+          MONGO_URI: mongodb://localhost:27017/urlpulse_e2e
+          REDIS_URL: redis://localhost:6379
+        run: npm run test:e2e
+
+      - name: Dependency audit (fail on CRITICAL)
+        if: matrix.node == 24
+        run: npm audit --omit=dev --audit-level=critical
+
+  image:
+    name: Build, scan and smoke-test image
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+      actions: read # required by the SARIF upload on private repositories
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build timestamp
+        id: build
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: urlpulse:ci
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.build.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Quality gate: a fixable CRITICAL vulnerability stops the pipeline here.
+      # Unfixed ones are ignored because nothing can be done about them yet.
+      - name: Trivy image scan (fail on CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: urlpulse:ci
+          format: table
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      # Advisory: repository files (dependencies, committed secrets, Dockerfile/K8s/Compose misconfiguration)
+      - name: Trivy repository scan (advisory)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          skip-dirs: node_modules,coverage
+
+      - name: Trivy report for the Security tab
+        if: vars.ENABLE_CODE_SCANNING == 'true' && github.event.pull_request.head.repo.fork != true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: urlpulse:ci
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - name: Upload Trivy report
+        if: vars.ENABLE_CODE_SCANNING == 'true' && github.event.pull_request.head.repo.fork != true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
+      # Run the exact image that would ship. No MongoDB or Redis here, so the app
+      # starts in its in-memory mode; the point is to prove the image boots, passes its
+      # own HEALTHCHECK, serves the website and redirects.
+      - name: Start the container
+        run: |
+          docker run -d --name urlpulse-ci -p 5000:5000 \
+            -e HASH_SALT=ci-only-salt-not-a-secret-0123456789 \
+            urlpulse:ci
+
+      - name: Smoke test the container
+        env:
+          CHECK_METRICS: "1"
+        run: ./scripts/smoke-test.sh http://127.0.0.1:5000
+
+      - name: Container health and logs
+        if: always()
+        run: |
+          echo "Docker health status: $(docker inspect -f '{{.State.Health.Status}}' urlpulse-ci || true)"
+          docker logs urlpulse-ci || true
+
+  publish:
+    name: Publish to Docker Hub
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      pushed: ${{ steps.creds.outputs.enabled }}
+      tag: ${{ steps.meta.outputs.sha_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check registry credentials
+        id: creds
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::warning::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN are not set, so nothing was published."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Tags: always sha-<7 chars>; main also gets "latest"; a v1.2.3 tag gets 1.2.3 and 1.2.
+      - name: Compute image tags
+        id: meta
+        if: steps.creds.outputs.enabled == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          image="${DOCKERHUB_USERNAME}/urlpulse"
+          sha_tag="sha-${GITHUB_SHA::7}"
+          {
+            echo "sha_tag=${sha_tag}"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "tags<<EOF"
+            echo "${image}:${sha_tag}"
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+              echo "${image}:latest"
+            fi
+            if [[ "${GITHUB_REF}" =~ ^refs/tags/v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "${image}:${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+              echo "${image}:${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v4
+        if: steps.creds.outputs.enabled == 'true'
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.creds.outputs.enabled == 'true'
+
+      - uses: docker/login-action@v4
+        if: steps.creds.outputs.enabled == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Rebuilds with the same Dockerfile and the layer cache from the scanned build,
+      # now for amd64 and arm64, with a provenance attestation and an SBOM attached.
+      - name: Build and push
+        if: steps.creds.outputs.enabled == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.date }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to production
+    needs: publish
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.DEPLOY_ENABLED == 'true' &&
+      needs.publish.outputs.pushed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_URL }}
+    # Never run two deploys at once, and never cancel one half way through.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          IMAGE_TAG: ${{ needs.publish.outputs.tag }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # Host key is pinned from a secret: no trust-on-first-use.
+          # git pull first, so compose files and monitoring config match this commit.
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "cd '${DEPLOY_PATH}' && git pull --ff-only && IMAGE_TAG='${IMAGE_TAG}' ./scripts/deploy.sh"
+
+      - name: Smoke test the public URL
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: ./scripts/smoke-test.sh "$PUBLIC_URL"

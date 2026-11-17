@@ -1,0 +1,133 @@
+# Alerting rules. Every alert answers three questions: what is wrong, how bad, what to do first.
+# Thresholds are starting points; tune them against your own baseline in Grafana.
+groups:
+  - name: urlpulse-availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job="urlpulse"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "URLPulse is not answering Prometheus scrapes"
+          description: "The app has been unreachable for over a minute. Check `docker compose ps` and `docker compose logs app`."
+
+      - alert: DatabaseDown
+        expr: urlpulse_dependency_up{dependency="mongo"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MongoDB is unreachable from the app"
+          description: "Links cannot be created or resolved on a cache miss. /health returns 503. Check the mongo container and its volume."
+
+      - alert: CacheDown
+        expr: urlpulse_dependency_up{dependency="redis"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis is unreachable: redirects are served from MongoDB"
+          description: "Service still works (status DEGRADED) but every redirect reads the database. Expect higher latency and database load."
+
+      - alert: RestartLoop
+        expr: changes(process_start_time_seconds{job="urlpulse"}[15m]) > 2
+        labels:
+          severity: critical
+        annotations:
+          summary: "The app restarted more than twice in 15 minutes"
+          description: "Look for crashes or OOM kills: `docker compose logs --tail=200 app` and `docker inspect` for OOMKilled."
+
+  - name: urlpulse-performance
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="urlpulse", status_code=~"5.."}[5m]))
+            / sum(rate(http_requests_total{job="urlpulse"}[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 5% of requests are failing with 5xx"
+          description: "Check recent deploys first (`docker compose logs app`), then MongoDB health."
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="urlpulse", route!="static"}[5m]))
+          ) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 request latency is above 500 ms"
+          description: "Redirects should take single-digit milliseconds. Check the cache hit ratio and MongoDB load."
+
+      - alert: EventLoopLag
+        expr: nodejs_eventloop_lag_p99_seconds{job="urlpulse"} > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node.js event loop is lagging (p99 above 100 ms)"
+          description: "The process is CPU-bound or blocked. Consider scaling out or profiling."
+
+      - alert: HighMemory
+        expr: process_resident_memory_bytes{job="urlpulse"} > 300 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "App memory is above 300 MB (container limit is 384 MB)"
+          description: "Approaching the OOM-kill limit. Check the click queue size and look for a leak."
+
+      - alert: RateLimitingHeavy
+        expr: sum(rate(http_requests_total{job="urlpulse", status_code="429"}[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sustained rate limiting (over 5 rejected requests per second)"
+          description: "Likely abuse or a misbehaving client. Check access logs for the source address."
+
+  - name: urlpulse-pipeline
+    rules:
+      - alert: LowCacheHitRatio
+        expr: |
+          (
+            sum(rate(urlpulse_redirect_cache_hits_total[15m]))
+              / (sum(rate(urlpulse_redirect_cache_hits_total[15m])) + sum(rate(urlpulse_redirect_cache_misses_total[15m])))
+          ) < 0.5
+          and
+          (sum(rate(urlpulse_redirect_cache_hits_total[15m])) + sum(rate(urlpulse_redirect_cache_misses_total[15m]))) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Under half of redirects are answered from the cache"
+          description: "Redis may be too small (maxmemory 128mb evicts keys) or restarting. Healthy steady state is above 90%."
+
+      - alert: ClickBufferBackingUp
+        expr: urlpulse_click_queue_size > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Click events are queuing faster than MongoDB absorbs them"
+          description: "Clicks are held in memory and lost if the queue limit (20000) is reached."
+
+      - alert: ClickFlushFailing
+        expr: increase(urlpulse_click_flush_failures_total[5m]) > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Click batches are failing to write to MongoDB"
+          description: "Events are retried, but check database health and disk space."
+
+      - alert: ClicksDropped
+        expr: increase(urlpulse_clicks_dropped_total[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Click events were dropped because the in-memory queue overflowed"
+          description: "Analytics data is being lost. Fix the database problem first; then consider raising CLICK_QUEUE_LIMIT."

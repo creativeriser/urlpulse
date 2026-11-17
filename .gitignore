@@ -1,0 +1,57 @@
+# Dependencies and build output
+node_modules/
+coverage/
+*.log
+npm-debug.log*
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Backups and deploy state
+backups/
+
+# Editors and OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Packaging
+*.zip
+
+# Real Kubernetes secrets (copy of k8s/secret.example.yaml)
+k8s/secret.yaml
+
+# Additional dependencies
+yarn-debug.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+build/
+out/
+
+# Testing
+.nyc_output/
+jest-results/
+
+# Temporary files
+tmp/
+temp/
+.cache/
+*.tmp
+
+# Runtime files
+*.pid
+*.seed
+*.pid.lock
+
+# Docker local data
+docker-data/
+volumes/
+
+# SSL private keys
+*.key
+*.p12

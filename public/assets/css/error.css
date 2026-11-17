@@ -1,0 +1,52 @@
+/* ==========================================================================
+   Error pages (404 and expired links)
+   ========================================================================== */
+
+.problem {
+  padding-block: var(--s-9) var(--s-8);
+}
+
+.problem .wrap {
+  display: grid;
+  gap: var(--s-5);
+  justify-items: start;
+}
+
+.problem-trace {
+  width: 100%;
+  max-width: 40rem;
+  height: auto;
+  margin-bottom: var(--s-3);
+}
+
+.problem-trace path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+}
+
+.problem-trace .beats {
+  stroke: var(--ink);
+}
+
+.problem-trace .flat-bad {
+  stroke: var(--bad-mark);
+}
+
+.problem-trace .flat-end {
+  stroke: var(--ink-3);
+  stroke-dasharray: 1 8;
+}
+
+.problem-trace .cross {
+  stroke: var(--bad-mark);
+}
+
+.problem .h1 {
+  max-width: 14ch;
+}
+
+.problem-actions {
+  margin-top: var(--s-3);
+}

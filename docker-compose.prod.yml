@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# Production override. Always pass both files explicitly:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from development:
+#   - the app image is pulled from the registry (IMAGE + IMAGE_TAG in .env), never built on the server
+#   - resource ceilings so one noisy container cannot starve the host
+#   - nothing is published except nginx (set HTTP_PORT=80 in .env)
+# scripts/deploy.sh wraps this file with pull, health wait and automatic rollback.
+# ---------------------------------------------------------------------------
+services:
+  app:
+    image: ${IMAGE:?Set IMAGE in .env, e.g. youruser/urlpulse}:${IMAGE_TAG:?Set IMAGE_TAG in .env (CI publishes sha-<commit>)}
+    pull_policy: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 384M
+
+  nginx:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+  mongo:
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 192M
+
+  prometheus:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  grafana:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M

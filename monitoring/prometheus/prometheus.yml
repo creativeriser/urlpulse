@@ -1,0 +1,33 @@
+# Prometheus configuration (mounted read-only at /etc/prometheus).
+# Reload after editing without a restart:  curl -X POST http://127.0.0.1:9090/-/reload
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    service: urlpulse
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+# No Alertmanager is bundled: alerts show up under Alerts in the Prometheus UI and in Grafana.
+# To get notifications, add an Alertmanager service to docker-compose.yml and uncomment:
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: urlpulse
+    metrics_path: /metrics
+    static_configs:
+      # Scraped directly on the internal Docker network, so the public nginx never exposes /metrics.
+      - targets: ["app:5000"]
+    # If METRICS_TOKEN is set in .env, put the same token in a file next to this config
+    # (and add it to .gitignore), then enable:
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/metrics_token
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

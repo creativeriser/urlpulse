@@ -1,0 +1,25 @@
+# Apply everything:   kubectl apply -k k8s/
+# Pin a release:      cd k8s && kustomize edit set image urlpulse=docker.io/<user>/urlpulse:sha-abc1234
+#
+# Create the secret first (see secret.example.yaml): it is intentionally not part of this list.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: urlpulse
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - data.yaml
+  - app.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+
+images:
+  - name: urlpulse
+    newName: docker.io/YOUR_DOCKERHUB_USER/urlpulse
+    newTag: latest
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: urlpulse

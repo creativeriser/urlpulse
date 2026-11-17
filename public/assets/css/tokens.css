@@ -1,0 +1,153 @@
+/* ==========================================================================
+   URLPulse design tokens
+   Single source of truth for colour, type, space, radius and motion.
+   Documented in docs/design/DESIGN_SYSTEM.md. Change values HERE only.
+   ========================================================================== */
+
+@font-face {
+  font-family: 'Bricolage';
+  src: url('/assets/fonts/bricolage-grotesque-latin-wdth-normal.woff2') format('woff2-variations');
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Martian';
+  src: url('/assets/fonts/martian-mono-latin-wdth-normal.woff2') format('woff2-variations');
+  font-weight: 100 800;
+  font-stretch: 75% 112.5%;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+
+  /* --- Surface & ink (light: "ECG paper") ------------------------------ */
+  --paper: #fcf7f8; /* page background, faint rose */
+  --paper-sunk: #f6eef0; /* wells, table stripes, track of meters */
+  --panel: #ffffff; /* raised surface: inputs, tooltips, dialogs */
+  --grid: #f0d9df; /* ECG graph-paper lines (hero + status only) */
+  --line: #e6dde3; /* hairlines and borders */
+  --line-strong: #cfc3cc; /* axis lines, table rules, decorative borders */
+  --field-border: #8a8299; /* control boundaries: inputs, switch track (>= 3:1 on paper, panel and wells) */
+  --ink: #1a1438; /* primary text, primary button fill */
+  --ink-2: #544d6b; /* secondary text */
+  --ink-3: #6e6784; /* muted text (still >= 4.5:1 on paper) */
+
+  /* --- Data & brand ------------------------------------------------------ */
+  --pulse: #4b34e0; /* series colour, links, traces */
+  --pulse-strong: #3a26c4; /* hover / pressed */
+  --pulse-wash: rgb(75 52 224 / 0.1); /* area fills & selection wash */
+  --on-ink: #fcf7f8; /* text on --ink */
+
+  /* --- Status (reserved: never reused as series colours) ---------------- */
+  --good: #0a7a0a; /* text-safe green on paper (5.2:1) */
+  --good-mark: #0ca30c; /* marks / dots */
+  --warn: #8a5a00; /* text-safe amber on paper */
+  --warn-mark: #b87a00; /* marks / accents: >= 3:1 on paper, panel and wells (the brighter #fab219 is only 1.7:1 on light) */
+  --bad: #c42b2b; /* text-safe red on paper (5.4:1) */
+  --bad-mark: #d03b3b;
+
+  /* --- Type ---------------------------------------------------------------- */
+  --font-sans: 'Bricolage', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Martian', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Scale: 1.25 (major third) from 16px, fluid at the top end */
+  --step--1: 0.875rem; /* 14 */
+  --step-0: 1rem; /* 16 */
+  --step-1: 1.25rem; /* 20 */
+  --step-2: 1.5625rem; /* 25 */
+  --step-3: clamp(1.75rem, 1.5rem + 1vw, 1.9375rem); /* ~31 */
+  --step-4: clamp(2rem, 1.6rem + 1.6vw, 2.4375rem); /* ~39 */
+  --step-5: clamp(2.5rem, 1.9rem + 2.6vw, 3.0625rem); /* ~49 */
+  --step-6: clamp(3rem, 2rem + 4.4vw, 4.75rem); /* up to 76 */
+  --step-7: clamp(3.25rem, 1.6rem + 7.2vw, 6.25rem); /* up to 100 (hero) */
+
+  /* --- Space (4px base) ------------------------------------------------------ */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4.5rem;
+  --s-9: 7rem;
+
+  /* --- Shape: radius follows hierarchy, not one value everywhere ---------- */
+  --r-xs: 4px; /* bar data-ends, tags */
+  --r-sm: 8px; /* inputs, small controls */
+  --r-md: 14px; /* panels, tooltips */
+  --r-pill: 999px; /* primary buttons, segmented controls */
+
+  /* --- Layout ---------------------------------------------------------------- */
+  --page: 74rem; /* 1184px content width */
+  --gutter: clamp(1rem, 4vw, 2.5rem);
+  --measure: 62ch;
+
+  /* --- Elevation: used sparingly (menus, tooltips, toasts only) ----------- */
+  --shadow-pop: 0 12px 32px -8px rgb(26 20 56 / 0.22), 0 2px 6px rgb(26 20 56 / 0.08);
+
+  /* --- Motion --------------------------------------------------------------- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur: 220ms;
+
+  --focus: 0 0 0 3px var(--paper), 0 0 0 5px var(--pulse);
+}
+
+/* --- Dark: "monitor in a dark room" ---------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+    --paper: #0f0c1d;
+    --paper-sunk: #171329;
+    --panel: #1a1631;
+    --grid: #1d1834;
+    --line: #2a2444;
+    --line-strong: #453d68;
+    --field-border: #6d6592;
+    --ink: #efebfa;
+    --ink-2: #b6afd0;
+    --ink-3: #9a93b6;
+    --pulse: #a597ff;
+    --pulse-strong: #c1b7ff;
+    --pulse-wash: rgb(165 151 255 / 0.14);
+    --on-ink: #0f0c1d;
+    --good: #4ccf4c;
+    --good-mark: #0ca30c;
+    --warn: #f0b429;
+    --warn-mark: #fab219;
+    --bad: #ff7b7b;
+    --bad-mark: #e66767;
+    --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #0f0c1d;
+  --paper-sunk: #171329;
+  --panel: #1a1631;
+  --grid: #1d1834;
+  --line: #2a2444;
+  --line-strong: #453d68;
+  --field-border: #6d6592;
+  --ink: #efebfa;
+  --ink-2: #b6afd0;
+  --ink-3: #9a93b6;
+  --pulse: #a597ff;
+  --pulse-strong: #c1b7ff;
+  --pulse-wash: rgb(165 151 255 / 0.14);
+  --on-ink: #0f0c1d;
+  --good: #4ccf4c;
+  --good-mark: #0ca30c;
+  --warn: #f0b429;
+  --warn-mark: #fab219;
+  --bad: #ff7b7b;
+  --bad-mark: #e66767;
+  --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+}

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urlpulse-config
+data:
+  NODE_ENV: production
+  PORT: "5000"
+  # Edit to your public address: short links are issued from this base
+  BASE_URL: https://pulse.example.com
+  # One proxy (the ingress controller) in front of the pods
+  TRUST_PROXY: "1"
+  REDIS_URL: redis://redis:6379
+  RATE_LIMIT_MAX: "100"
+  READ_RATE_LIMIT_MAX: "600"
+  MONITOR_ENABLED: "true"
+  CLICK_RETENTION_DAYS: "90"
+  LOG_LEVEL: info

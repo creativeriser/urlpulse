@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: urlpulse
+  annotations:
+    # Requires cert-manager and a ClusterIssuer named letsencrypt-prod. Delete both lines to bring your own certificate.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: 16k
+    # Coarse per-IP limit (requests per second) in front of the app's own 100/600 per 15 min limits
+    nginx.ingress.kubernetes.io/limit-rps: "30"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [pulse.example.com]
+      secretName: urlpulse-tls
+  rules:
+    - host: pulse.example.com # change to your domain (and BASE_URL in configmap.yaml)
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: urlpulse
+                port:
+                  name: http

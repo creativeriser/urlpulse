@@ -1,0 +1,181 @@
+/* ==========================================================================
+   Status page
+   ========================================================================== */
+
+.state-hero {
+  padding-block: var(--s-8) var(--s-6);
+}
+
+.state-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  font-size: var(--step-6);
+  font-weight: 800;
+  font-stretch: 76%;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  text-wrap: balance;
+}
+
+.state-icon svg {
+  width: 0.8em;
+  height: 0.8em;
+}
+
+.state-title[data-state='UP'] .state-icon {
+  color: var(--good);
+}
+.state-title[data-state='DEGRADED'] .state-icon,
+.state-title[data-state='pending'] .state-icon {
+  color: var(--warn);
+}
+.state-title[data-state='DOWN'] .state-icon,
+.state-title[data-state='DRAINING'] .state-icon,
+.state-title[data-state='UNREACHABLE'] .state-icon {
+  color: var(--bad);
+}
+
+.state-hero .lede {
+  margin-top: var(--s-4);
+}
+
+.trace-panel {
+  margin-top: var(--s-6);
+  padding: var(--s-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+
+.trace-panel .small {
+  margin-top: var(--s-3);
+  max-width: 62ch;
+}
+
+.block-title {
+  font-size: var(--step-1);
+  font-weight: 700;
+  font-stretch: 88%;
+  letter-spacing: -0.01em;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--s-8);
+  padding-top: var(--s-8);
+  align-items: start;
+}
+
+/* Component rows: a ledger, separated by hairlines */
+
+.components {
+  margin-top: var(--s-4);
+  border-top: 1px solid var(--line-strong);
+}
+
+.component {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-1) var(--s-5);
+  align-items: center;
+  padding-block: var(--s-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.component-name {
+  font-weight: 650;
+}
+
+.component-detail {
+  grid-column: 1;
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
+.component .status {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  font-size: var(--step-0);
+}
+
+/* Facts */
+
+.facts {
+  margin-top: var(--s-4);
+  border-top: 1px solid var(--line-strong);
+}
+
+.facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding-block: var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.facts dt {
+  color: var(--ink-3);
+}
+
+.facts dd {
+  font-weight: 620;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.cache {
+  margin-top: var(--s-6);
+}
+
+.cache-title {
+  font-weight: 650;
+}
+
+/* Meter: the track is a lighter step of the same ramp as the fill */
+
+.meter {
+  height: 10px;
+  margin-block: var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--pulse-wash);
+  overflow: hidden;
+}
+
+.meter-fill {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--pulse);
+  transition: width var(--dur) var(--ease-out);
+}
+
+.endpoints {
+  display: grid;
+  gap: var(--s-4);
+  padding-top: var(--s-8);
+}
+
+@media (max-width: 56rem) {
+  .status-grid {
+    grid-template-columns: 1fr;
+    gap: var(--s-7);
+    padding-top: var(--s-7);
+  }
+}
+
+@media (max-width: 36rem) {
+  .state-hero {
+    padding-block: var(--s-7) var(--s-5);
+  }
+  .component {
+    grid-template-columns: 1fr;
+  }
+  .component .status {
+    grid-column: 1;
+    grid-row: auto;
+    order: -1;
+  }
+}

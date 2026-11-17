@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>URLPulse: short links that tell you when they break</title>
+    <meta
+      name="description"
+      content="Shorten a link, get click analytics and a QR code, and let URLPulse check that the page behind it is still alive."
+    />
+    <meta name="theme-color" content="#fcf7f8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f0c1d" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="/assets/fonts/bricolage-grotesque-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <script src="/assets/js/theme-init.js"></script>
+    <link rel="stylesheet" href="/assets/css/tokens.css" />
+    <link rel="stylesheet" href="/assets/css/base.css" />
+    <link rel="stylesheet" href="/assets/css/charts.css" />
+    <link rel="stylesheet" href="/assets/css/home.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap bar">
+        <a class="brand" href="/" aria-label="URLPulse home">
+          <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h5l2.2-6.5L13 18.5l2.6-6.5H22" /></svg>
+          <span>URLPulse</span>
+        </a>
+        <nav class="nav" aria-label="Main">
+          <a href="/" aria-current="page">Shorten</a>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/status">Status</a>
+        </nav>
+        <button class="icon-btn theme-toggle" type="button" aria-label="Switch theme">
+          <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" /></svg>
+          <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- ===================== Hero: the shortener ===================== -->
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="wrap">
+          <h1 id="hero-title" class="display hero-title">Shorten a link. Then know if it&rsquo;s still alive.</h1>
+          <p class="lede">
+            Paste a long URL to get a short one with click analytics, a QR code and, if you want it, an uptime check on the page behind it.
+          </p>
+        </div>
+
+        <!-- The heartbeat feeds the form. It draws once on load and beats again when a link is created. -->
+        <div class="hero-trace" aria-hidden="true">
+          <svg viewBox="0 0 1200 120" preserveAspectRatio="none" focusable="false">
+            <path class="trace-line" pathLength="1000" d="M0 74L24 74.6L48 73.4L56 74L60 74.0L74 74.0L82 67.7L90 74.0L100 78.2L110 37.6L120 90.8L130 74.0L146 65.6L160 74.0L184 74.6L196 74L200 74.0L214 74.0L222 65.0L230 74.0L240 80.0L250 22.0L260 98.0L270 74.0L286 62.0L300 74.0L324 74.6L346 74L350 74.0L364 74.0L372 66.8L380 74.0L390 78.8L400 32.4L410 93.2L420 74.0L436 64.4L450 74.0L474 74.6L498 73.4L501 74L505 74.0L519 74.0L527 62.8L535 74.0L545 81.5L555 9.0L565 104.0L575 74.0L591 59.0L605 74.0L629 74.6L653 73.4L656 74L660 74.0L674 74.0L682 67.3L690 74.0L700 78.5L710 35.0L720 92.0L730 74.0L746 65.0L760 74.0L784 74.6L806 74L810 74.0L824 74.0L832 65.0L840 74.0L850 80.0L860 22.0L870 98.0L880 74.0L896 62.0L910 74.0L934 74.6L946 74L950 74.0L964 74.0L972 66.3L980 74.0L990 79.1L1000 29.8L1010 94.4L1020 74.0L1036 63.8L1050 74.0L1074 74.6L1081 74L1085 74.0L1099 74.0L1107 61.9L1115 74.0L1125 82.1L1135 3.8L1145 106.4L1155 74.0L1171 57.8L1185 74.0L1200 74" />
+            <path class="trace-beat" id="trace-beat" pathLength="1000" d="M0 74L24 74.6L48 73.4L56 74L60 74.0L74 74.0L82 67.7L90 74.0L100 78.2L110 37.6L120 90.8L130 74.0L146 65.6L160 74.0L184 74.6L196 74L200 74.0L214 74.0L222 65.0L230 74.0L240 80.0L250 22.0L260 98.0L270 74.0L286 62.0L300 74.0L324 74.6L346 74L350 74.0L364 74.0L372 66.8L380 74.0L390 78.8L400 32.4L410 93.2L420 74.0L436 64.4L450 74.0L474 74.6L498 73.4L501 74L505 74.0L519 74.0L527 62.8L535 74.0L545 81.5L555 9.0L565 104.0L575 74.0L591 59.0L605 74.0L629 74.6L653 73.4L656 74L660 74.0L674 74.0L682 67.3L690 74.0L700 78.5L710 35.0L720 92.0L730 74.0L746 65.0L760 74.0L784 74.6L806 74L810 74.0L824 74.0L832 65.0L840 74.0L850 80.0L860 22.0L870 98.0L880 74.0L896 62.0L910 74.0L934 74.6L946 74L950 74.0L964 74.0L972 66.3L980 74.0L990 79.1L1000 29.8L1010 94.4L1020 74.0L1036 63.8L1050 74.0L1074 74.6L1081 74L1085 74.0L1099 74.0L1107 61.9L1115 74.0L1125 82.1L1135 3.8L1145 106.4L1155 74.0L1171 57.8L1185 74.0L1200 74" />
+          </svg>
+        </div>
+
+        <div class="wrap">
+          <form id="shorten-form" class="shorten" novalidate>
+            <div class="shorten-main">
+              <div class="field grow">
+                <label class="visually-hidden" for="url">Long URL</label>
+                <input
+                  id="url"
+                  name="originalUrl"
+                  class="input input-lg"
+                  type="text"
+                  inputmode="url"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  placeholder="Paste a long URL, like https://example.com/your/long/page"
+                  aria-describedby="url-error"
+                  required
+                />
+              </div>
+              <button class="btn btn-lg" type="submit" id="submit-btn">Shorten link</button>
+            </div>
+            <p id="url-error" class="field-error" role="alert"></p>
+
+            <div class="shorten-options">
+              <div class="field">
+                <label for="alias">Custom alias</label>
+                <div class="affix">
+                  <span class="affix-text mono" id="alias-prefix">/</span>
+                  <input id="alias" name="customAlias" class="input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="30" placeholder="my-portfolio" aria-describedby="alias-hint" />
+                </div>
+                <p id="alias-hint" class="hint">3 to 30 letters, numbers or hyphens. Leave empty for a random code.</p>
+              </div>
+
+              <div class="field">
+                <label for="expires">Link expires</label>
+                <select id="expires" name="expiresInDays" class="select">
+                  <option value="">Never</option>
+                  <option value="1">After 1 day</option>
+                  <option value="7">After 7 days</option>
+                  <option value="30">After 30 days</option>
+                  <option value="90">After 90 days</option>
+                  <option value="365">After 1 year</option>
+                </select>
+                <p class="hint">Visitors see an expired page afterwards.</p>
+              </div>
+
+              <div class="field watch" id="watch-field">
+                <span class="field-label" id="watch-label">Uptime check</span>
+                <label class="switch">
+                  <input type="checkbox" id="watch" name="monitor" aria-labelledby="watch-label watch-text" />
+                  <span class="track" aria-hidden="true"></span>
+                  <span id="watch-text">Watch the destination</span>
+                </label>
+                <select id="interval" name="monitorIntervalSeconds" class="select" aria-label="How often to check" disabled>
+                  <option value="60">Every minute</option>
+                  <option value="300" selected>Every 5 minutes</option>
+                  <option value="900">Every 15 minutes</option>
+                  <option value="3600">Every hour</option>
+                  <option value="86400">Every day</option>
+                </select>
+              </div>
+            </div>
+          </form>
+
+          <!-- Result readout (filled by home.js) -->
+          <section id="result" class="readout" aria-live="polite" aria-labelledby="result-title" hidden>
+            <div class="readout-main">
+              <h2 id="result-title" class="readout-title">Your short link is ready</h2>
+              <a id="result-url" class="readout-url mono" target="_blank" rel="noopener"></a>
+              <p class="readout-dest muted small">Points to <span id="result-dest"></span></p>
+              <div class="cluster readout-actions">
+                <button class="btn" type="button" id="copy-link"></button>
+                <a class="btn btn-quiet" id="open-dashboard" href="/dashboard"></a>
+                <a class="btn btn-quiet" id="download-qr" download></a>
+              </div>
+              <div class="key-box">
+                <p class="key-title">Management key</p>
+                <p class="key-desc small">
+                  This is the only time it is shown. You need it to delete the link or change its uptime check. It is already saved in this browser for your dashboard.
+                </p>
+                <div class="key-row">
+                  <code id="result-key" class="mono key-value"></code>
+                  <button class="btn btn-quiet btn-sm" type="button" id="copy-key"></button>
+                </div>
+              </div>
+            </div>
+            <figure class="readout-qr">
+              <img id="result-qr" width="180" height="180" alt="QR code for the short link" />
+              <figcaption class="small muted">Scan to open</figcaption>
+            </figure>
+          </section>
+        </div>
+      </section>
+
+      <!-- ===================== What every link gets ===================== -->
+      <section class="section" aria-labelledby="features-title">
+        <div class="wrap split">
+          <div class="split-head">
+            <h2 id="features-title" class="h2">What every link gets</h2>
+            <p class="prose">No account needed. Links you create are tied to a management key that stays in your browser.</p>
+          </div>
+
+          <div class="split-body">
+            <article class="feature">
+              <div class="feature-text">
+                <h3 class="h3">Short links you control</h3>
+                <p class="prose">
+                  Get a random 7-character code or choose your own alias. Set an expiry date, scan the QR code, or delete the link whenever you like with its management key.
+                </p>
+              </div>
+              <div class="specimen" role="group" aria-label="Sample alias checks">
+                <ul class="alias-demo">
+                  <li><span class="mono">/my-portfolio</span><span class="status" data-state="up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 12.5l3 3 5-6" /></svg>Available</span></li>
+                  <li><span class="mono">/launch-day</span><span class="status" data-state="down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></svg>Already taken</span></li>
+                  <li><span class="mono">/dashboard</span><span class="status" data-state="down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></svg>Reserved word</span></li>
+                </ul>
+                <p class="specimen-note small muted">Sample</p>
+              </div>
+            </article>
+
+            <article class="feature">
+              <div class="feature-text">
+                <h3 class="h3">Analytics without tracking people</h3>
+                <p class="prose">
+                  Every redirect records the browser, operating system, device and the site that sent the visitor. IP addresses are salted and hashed, never stored, and click logs delete themselves after 90 days.
+                </p>
+              </div>
+              <div class="specimen" role="group" aria-label="Sample clicks chart">
+                <div id="sample-clicks" class="chart-box"></div>
+                <p class="specimen-note small muted">Sample data</p>
+              </div>
+            </article>
+
+            <article class="feature">
+              <div class="feature-text">
+                <h3 class="h3">A heartbeat on the destination</h3>
+                <p class="prose">
+                  Turn on the uptime check and URLPulse visits the target page on a schedule. A passing check draws a beat, a failing one draws a flatline, and two failures in a row mark the link as down.
+                </p>
+              </div>
+              <div class="specimen" role="group" aria-label="Sample uptime trace">
+                <div id="sample-trace" class="chart-box"></div>
+                <p class="specimen-note small muted">Sample data: two failed checks</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== How a redirect works ===================== -->
+      <section class="section section-tint" aria-labelledby="flow-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="flow-title" class="h2">How a redirect works</h2>
+            <p class="prose">
+              A lookup asks Redis first. On a miss it reads MongoDB and fills the cache for next time. Clicks are queued in memory and written in batches, so the visitor never waits for analytics.
+            </p>
+          </div>
+
+          <figure class="diagram">
+            <svg viewBox="0 0 960 300" role="img" aria-labelledby="flow-svg-title flow-svg-desc" focusable="false">
+              <title id="flow-svg-title">Redirect request flow</title>
+              <desc id="flow-svg-desc">
+                A browser request passes through Nginx to the URLPulse app. The app checks Redis. On a cache hit it redirects immediately. On a miss it reads MongoDB and stores the result in Redis. Click events go to an in-memory buffer that writes to MongoDB in batches.
+              </desc>
+              <defs>
+                <marker id="arrow-fast" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1l8 4-8 4z" class="head-fast" /></marker>
+                <marker id="arrow-slow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1l8 4-8 4z" class="head-slow" /></marker>
+              </defs>
+
+              <path class="flow flow-plain" d="M120 140H160" marker-end="url(#arrow-slow)" />
+              <path class="flow flow-plain" d="M270 140H320" marker-end="url(#arrow-slow)" />
+              <path class="flow flow-fast" d="M460 125C510 125 510 62 560 62" marker-end="url(#arrow-fast)" />
+              <path class="flow flow-miss" d="M460 155C510 155 510 218 560 218" marker-end="url(#arrow-slow)" />
+              <path class="flow flow-bg" d="M390 170V250H560" marker-end="url(#arrow-slow)" />
+
+              <g class="node"><rect x="10" y="110" width="110" height="60" rx="14" /><text class="node-title" x="65" y="146" text-anchor="middle">Browser</text></g>
+              <g class="node"><rect x="160" y="110" width="110" height="60" rx="14" /><text class="node-title" x="215" y="136" text-anchor="middle">Nginx</text><text class="node-sub" x="215" y="156" text-anchor="middle">reverse proxy</text></g>
+              <g class="node node-app"><rect x="320" y="110" width="140" height="60" rx="14" /><text class="node-title" x="390" y="136" text-anchor="middle">URLPulse</text><text class="node-sub" x="390" y="156" text-anchor="middle">Node.js, Express</text></g>
+              <g class="node"><rect x="560" y="32" width="160" height="60" rx="14" /><text class="node-title" x="640" y="58" text-anchor="middle">Redis</text><text class="node-sub" x="640" y="78" text-anchor="middle">cache, 24 h TTL</text></g>
+              <g class="node"><rect x="560" y="188" width="160" height="80" rx="14" /><text class="node-title" x="640" y="218" text-anchor="middle">MongoDB</text><text class="node-sub" x="640" y="238" text-anchor="middle">links and click logs</text></g>
+
+              <text class="flow-label label-fast" x="740" y="67">Hit: redirect straight away</text>
+              <text class="flow-label" x="740" y="212">Miss: look up, then cache</text>
+              <text class="flow-label" x="740" y="256">Clicks: written in batches</text>
+              <text class="flow-label" x="10" y="206">Visitor gets a 302</text>
+              <text class="flow-label" x="10" y="226">to the destination</text>
+              </svg>
+          </figure>
+
+          <dl class="running" id="running" aria-label="Live numbers from this server">
+            <div><dt>Links created</dt><dd id="st-links" class="num">n/a</dd></div>
+            <div><dt>Redirects counted</dt><dd id="st-clicks" class="num">n/a</dd></div>
+            <div><dt>Cache hit ratio</dt><dd id="st-cache" class="num">n/a</dd></div>
+            <div><dt>Links being watched</dt><dd id="st-watched" class="num">n/a</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <!-- ===================== Pipeline ===================== -->
+      <section class="section" aria-labelledby="pipe-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="pipe-title" class="h2">Every change ships through a pipeline</h2>
+            <p class="prose">
+              Nothing reaches the server by hand. A push to <span class="mono">main</span> runs the whole chain, and any failing step stops it.
+            </p>
+          </div>
+
+          <ol class="pipeline">
+            <li><h3 class="step-title">Push</h3><p class="small">A commit or pull request starts GitHub Actions.</p></li>
+            <li><h3 class="step-title">Lint and test</h3><p class="small">ESLint, then unit, integration and end-to-end tests against real MongoDB and Redis.</p></li>
+            <li><h3 class="step-title">Build</h3><p class="small">A multi-stage Docker image that runs as a non-root user.</p></li>
+            <li><h3 class="step-title">Scan</h3><p class="small">Trivy fails the build on any critical vulnerability that has a fix.</p></li>
+            <li><h3 class="step-title">Publish</h3><p class="small">The image goes to Docker Hub tagged with the commit and <span class="mono">latest</span>.</p></li>
+            <li><h3 class="step-title">Deploy</h3><p class="small">Docker Compose pulls the image and restarts the app behind health checks.</p></li>
+            <li><h3 class="step-title">Observe</h3><p class="small">Prometheus scrapes metrics, Grafana charts them and alerts fire on trouble.</p></li>
+          </ol>
+          <p class="pipeline-foot small muted">See the live health of this server on the <a href="/status">status page</a>.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap cols">
+        <div>
+          <p><strong>URLPulse</strong></p>
+          <p>A DevOps and Automation capstone project.</p>
+          <p class="build-info"></p>
+        </div>
+        <nav class="links" aria-label="Footer">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/status">Status</a>
+          <a href="/health">Health JSON</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script type="module" src="/assets/js/home.js"></script>
+  </body>
+</html>

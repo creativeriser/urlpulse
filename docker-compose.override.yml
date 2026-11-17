@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------
+# Development / local override. Compose loads this automatically next to
+# docker-compose.yml, so a plain `docker compose up -d --build` builds the
+# image from the local source and exposes handy ports on loopback only.
+#
+# It is NOT loaded when you pass -f explicitly (production does exactly that).
+# ---------------------------------------------------------------------------
+services:
+  app:
+    build:
+      context: .
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
+        BUILD_DATE: ${BUILD_DATE:-}
+    ports:
+      - "127.0.0.1:5000:5000" # hit the app directly, bypassing nginx
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+
+  mongo:
+    ports:
+      - "127.0.0.1:27017:27017" # for mongosh / Compass on your machine
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
