@@ -27,14 +27,17 @@ async function createContainer(config, overrides = {}) {
 
   let urlRepo = overrides.urlRepo;
   let clickRepo = overrides.clickRepo;
+
   if (!urlRepo || !clickRepo) {
     if (config.storage === 'mongo') {
       // Required lazily so memory mode never loads the mongoose driver.
       const { createMongo } = require('./adapters/mongo');
+
       const mongo = await createMongo(config.mongoUri, {
         retentionDays: config.clicks.retentionDays,
         logger,
       });
+
       urlRepo = urlRepo || mongo.urlRepo;
       clickRepo = clickRepo || mongo.clickRepo;
     } else {
@@ -44,6 +47,7 @@ async function createContainer(config, overrides = {}) {
   }
 
   let cache = overrides.cache;
+
   if (!cache) {
     if (config.cache === 'redis') {
       cache = new RedisCache(config.redisUrl, { logger });
