@@ -148,11 +148,77 @@ describe('security & hardening', () => {
     expect((await http.get('/api/stats')).status).toBe(200);
   });
 
+  describe('public-route rate limiting (redirects, pages, 404)', () => {
+    const limited = (extra = {}) => buildTestApp({ RATE_LIMIT_ENABLED: 'true', PUBLIC_RATE_LIMIT_MAX: '3', ...extra });
+
+    test('redirects and the 404 fallback return 429 with standard headers once the quota is spent', async () => {
+      const { http } = await limited();
+      const created = await http.post('/api/url/shorten').send({ originalUrl: 'https://example.com' });
+      const code = created.body.shortCode;
+      for (let i = 0; i < 3; i += 1) expect((await http.get(`/${code}`)).status).toBe(302);
+      const blocked = await http.get(`/${code}`);
+      expect(blocked.status).toBe(429);
+      expect(blocked.body.error.code).toBe('RATE_LIMITED');
+      expect(blocked.headers['ratelimit']).toBeDefined();
+      // unknown paths share the same bucket, so scanning for codes is throttled too
+      expect((await http.get('/nope-nope')).status).toBe(429);
+    });
+
+    test('the 404 page itself is limited (the CodeQL-flagged handler)', async () => {
+      const { http } = await limited();
+      for (let i = 0; i < 3; i += 1) expect((await http.get('/missing-page')).status).toBe(404);
+      expect((await http.get('/missing-page')).status).toBe(429);
+    });
+
+    test('static assets, health checks and metrics scraping are never counted', async () => {
+      const { http } = await limited({ METRICS_TOKEN: 'test-token-value' });
+      for (let i = 0; i < 10; i += 1) {
+        expect((await http.get('/assets/css/does-not-exist.css')).status).not.toBe(429);
+        expect((await http.get('/livez')).status).toBe(200);
+        expect((await http.get('/health')).status).toBe(200);
+        expect((await http.get('/metrics').set('Authorization', 'Bearer test-token-value')).status).toBe(200);
+      }
+    });
+
+    test('does not overlap the API limiters: API calls do not consume the public bucket', async () => {
+      const { http } = await limited();
+      for (let i = 0; i < 6; i += 1) expect((await http.get('/api/stats')).status).toBe(200);
+      expect((await http.get('/missing-page')).status).toBe(404);
+    });
+
+    test('the existing write limiter is unchanged', async () => {
+      const { http } = await limited({ RATE_LIMIT_MAX: '2' });
+      const send = () => http.post('/api/url/shorten').send({ originalUrl: 'https://example.com' });
+      expect((await send()).status).toBe(201);
+      expect((await send()).status).toBe(201);
+      expect((await send()).status).toBe(429);
+    });
+
+    test('RATE_LIMIT_ENABLED=false disables the public limiter as well', async () => {
+      const { http } = await buildTestApp({ RATE_LIMIT_ENABLED: 'false', PUBLIC_RATE_LIMIT_MAX: '1' });
+      for (let i = 0; i < 5; i += 1) expect((await http.get('/missing-page')).status).toBe(404);
+    });
+  });
+
   test('CORS is off by default and opt-in via CORS_ORIGIN', async () => {
     const off = await buildTestApp();
     expect((await off.http.get('/api/stats').set('Origin', 'https://evil.example')).headers['access-control-allow-origin']).toBeUndefined();
     const on = await buildTestApp({ CORS_ORIGIN: 'https://app.example' });
     expect((await on.http.get('/api/stats').set('Origin', 'https://app.example')).headers['access-control-allow-origin']).toBe('https://app.example');
+  });
+
+  test('CORS allowlist: allowed origins are echoed, other origins get no CORS headers', async () => {
+    const { http } = await buildTestApp({ CORS_ORIGIN: 'https://a.example, https://b.example' });
+    const get = (origin) => http.get('/api/stats').set('Origin', origin);
+    expect((await get('https://a.example')).headers['access-control-allow-origin']).toBe('https://a.example');
+    expect((await get('https://b.example')).headers['access-control-allow-origin']).toBe('https://b.example');
+    expect((await get('https://evil.example')).headers['access-control-allow-origin']).toBeUndefined();
+    expect((await get('https://a.example')).headers['access-control-allow-credentials']).toBeUndefined();
+  });
+
+  test('a wildcard CORS_ORIGIN is rejected at startup', async () => {
+    await expect(buildTestApp({ CORS_ORIGIN: '*' })).rejects.toThrow(/CORS_ORIGIN/);
+    await expect(buildTestApp({ CORS_ORIGIN: 'https://a.example,*' })).rejects.toThrow(/CORS_ORIGIN/);
   });
 
   test('unhandled errors become a generic 500 without leaking internals', async () => {

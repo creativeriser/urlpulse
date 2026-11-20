@@ -29,6 +29,25 @@ function isPrivateIPv4(ip) {
   return V4_BLOCKS.some(({ start, size }) => value >= start && value < start + size);
 }
 
+/** Expand an IPv6 literal into eight 16-bit groups (handles "::" and a trailing dotted quad). */
+function ipv6Groups(ip) {
+  let text = ip.toLowerCase();
+  const zone = text.indexOf('%');
+  if (zone !== -1) text = text.slice(0, zone);
+  const dotted = text.match(/(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const n = ipv4ToInt(dotted[1]);
+    text = `${text.slice(0, -dotted[1].length)}${((n >>> 16) & 0xffff).toString(16)}:${(n & 0xffff).toString(16)}`;
+  }
+  const [head, tail] = text.split('::');
+  const first = head ? head.split(':') : [];
+  const last = tail ? tail.split(':') : [];
+  const fill = tail === undefined ? 0 : 8 - first.length - last.length;
+  return [...first, ...Array(Math.max(fill, 0)).fill('0'), ...last].map((group) => Number.parseInt(group, 16));
+}
+
+const v4FromGroups = (hi, lo) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+
 function isPrivateIPv6(ip) {
   const lower = ip.toLowerCase();
   if (lower === '::' || lower === '::1') return true;
@@ -40,6 +59,16 @@ function isPrivateIPv6(ip) {
   if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
   if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
   if ((first & 0xff00) === 0xff00) return true; // ff00::/8 multicast
+
+  // Transition mechanisms that carry an IPv4 address: judge the embedded address.
+  const g = ipv6Groups(lower);
+  if (g.length !== 8 || g.some(Number.isNaN)) return true; // unparseable: fail closed
+  if (g.slice(0, 6).every((group) => group === 0)) return true; // ::/96 IPv4-compatible (deprecated)
+  if (g[0] === 0x64 && g[1] === 0xff9b) {
+    if (g[2] === 1) return true; // 64:ff9b:1::/48 local-use NAT64 (RFC 8215)
+    if (g.slice(2, 6).every((group) => group === 0)) return isPrivateIPv4(v4FromGroups(g[6], g[7])); // 64:ff9b::/96 NAT64
+  }
+  if (g[0] === 0x2002) return isPrivateIPv4(v4FromGroups(g[1], g[2])); // 2002::/16 6to4
   return false;
 }
 

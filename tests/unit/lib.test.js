@@ -103,6 +103,19 @@ describe('network guards', () => {
     ['fd00::1', true],
     ['::ffff:127.0.0.1', true],
     ['2606:4700:4700::1111', false],
+    ['::ffff:8.8.8.8', false], // IPv4-mapped public address
+    // IPv6 forms that embed an IPv4 address: judged by the embedded address
+    ['::', true],
+    ['::127.0.0.1', true], // IPv4-compatible
+    ['::a00:1', true],
+    ['64:ff9b::7f00:1', true], // NAT64 -> 127.0.0.1
+    ['64:ff9b::a9fe:a9fe', true], // NAT64 -> 169.254.169.254 (metadata)
+    ['64:ff9b::808:808', false], // NAT64 -> 8.8.8.8
+    ['64:ff9b:1::1', true], // local-use NAT64
+    ['2002:7f00:1::', true], // 6to4 -> 127.0.0.1
+    ['2002:a9fe:a9fe::1', true], // 6to4 -> 169.254.169.254
+    ['2002:808:808::', false], // 6to4 -> 8.8.8.8
+    ['fe80::1%eth0', true],
   ])('isPrivateIp(%s) === %s', (ip, expected) => {
     expect(isPrivateIp(ip)).toBe(expected);
   });
