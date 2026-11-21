@@ -1,7 +1,7 @@
 # URLPulse: documentation
 
 **Automated URL shortener and uptime-monitoring platform with CI/CD.**
-Version 1.0.0 · documentation last verified against the code on 2026-11-17.
+Version 1.0.0 · documentation last verified against the code on 2026-11-20.
 
 This is the **single source of truth** for the project. It says what URLPulse is, how it is designed and why, how to run, ship and extend it, and what has and has not been verified. The deep-dive documents under `docs/design/` hold the long-form detail (full API contract, every setting, every design token, every page state). They are summaries of nothing: each owns its topic. **If a deep dive and this file ever disagree, this file wins, and the deep dive is the one to fix.**
 
@@ -60,7 +60,7 @@ URLPulse does two jobs that belong together:
 
 It is also a **DevOps capstone**: the project demonstrates containerisation, a CI/CD pipeline with security gates, infrastructure as code, observability and operational runbooks around a real application, and it ships a polished website to show it off.
 
-**In scope:** the application, its website, the container and Compose stack, the pipeline, monitoring, Kubernetes manifests, scripts for deploy/backup/test, and all documentation.
+**In scope:** the application, its website, the container and Compose stack, the pipeline, monitoring, a Render deployment of the app, optional Kubernetes manifests (statically checked only), scripts for deploy/backup/test, and all documentation.
 
 **Out of scope (deliberate):** user accounts, teams or billing; editing a link's destination after creation (create a new link instead); multi-region deployment; exact click counting (counts are eventually consistent, see [Known limitations](#known-limitations)).
 
@@ -83,7 +83,7 @@ With no `MONGO_URI` and no Redis URL set, the app keeps everything in memory. It
 
 ```bash
 make up                    # creates .env with generated secrets, builds the image, starts six containers
-# Website      http://localhost:8080
+# Website      http://localhost:8082   (HTTP_PORT changes it)
 # Grafana      http://localhost:3001   (login printed once by `make init`)
 # Prometheus   http://localhost:9090
 make smoke                 # end-to-end check of a running stack
@@ -92,7 +92,7 @@ make down                  # stop, keep data     |   make reset   # stop and del
 
 **3. Production.** Follow [DEVOPS_RUNBOOK.md, section 5](docs/design/DEVOPS_RUNBOOK.md#5-first-time-server-setup); after that, pushing to `main` deploys.
 
-**Verify your checkout:** `npm run lint && npm test` (153 tests, about 2 seconds, no services needed).
+**Verify your checkout:** `npm run lint && npm test` (175 tests, about 2 seconds, no services needed).
 
 `make` lists every shortcut.
 
@@ -119,6 +119,8 @@ make down                  # stop, keep data     |   make reset   # stop and del
 ```
 
 Compose networks: `edge` (nginx, app, Prometheus, Grafana) and `data` (`internal: true`: app, MongoDB, Redis). Nothing but nginx is published to the world; Prometheus and Grafana bind to `127.0.0.1`.
+
+**Deployment shapes.** The diagram is the Docker Compose stack (six services), which is the primary demo and the full system. The public demo on Render is smaller: one Docker web service running the same app, with MongoDB Atlas as the database, the in-process memory cache instead of Redis (`CACHE=memory`; it starts empty after each restart and is not shared), and Render's own HTTPS edge and proxy in place of nginx (so there is no nginx request limit there and the app's own rate limits are the only per-IP limits). Prometheus and Grafana run only in Compose and are not deployed to Render. Kubernetes manifests exist as an optional extra and have not been deployed.
 
 ### Components
 
@@ -298,13 +300,13 @@ The complete contract (request and response shapes, validation rules, examples) 
 | `GET /:code` | `302` to the destination | none |
 | `GET /livez`, `/health`, `/metrics` | Operations | `/metrics`: optional bearer token |
 
-Errors share one envelope with a stable `code`: `VALIDATION_ERROR` 400, `INVALID_JSON` 400, `UNAUTHORIZED` 401, `FORBIDDEN` 403, `NOT_FOUND` 404, `ALIAS_TAKEN` 409, `EXPIRED` 410, `PAYLOAD_TOO_LARGE` 413, `RATE_LIMITED` 429, `INTERNAL` 500, `CODE_GENERATION_FAILED` 503. Rate limits are per client IP per 15 minutes (100 writes, 600 reads) and use the standard `RateLimit` headers.
+Errors share one envelope with a stable `code`: `VALIDATION_ERROR` 400, `INVALID_JSON` 400, `UNAUTHORIZED` 401, `FORBIDDEN` 403, `NOT_FOUND` 404, `ALIAS_TAKEN` 409, `EXPIRED` 410, `PAYLOAD_TOO_LARGE` 413, `RATE_LIMITED` 429, `INTERNAL` 500, `CODE_GENERATION_FAILED` 503. Rate limits are per client IP and use the standard `RateLimit` headers: 100 writes and 600 reads per 15 minutes on `/api`, and 600 requests per minute on the public routes (redirects, pages and the 404 page; static assets, `/livez`, `/health` and `/metrics` are not counted).
 
 ## Configuration summary
 
 All configuration is environment variables, read once at start-up into a frozen object; invalid values stop the start with a clear message. The complete table (about 40 settings with defaults) is [BACKEND_DESIGN.md, section 7](docs/design/BACKEND_DESIGN.md#7-configuration-reference); the operator-facing subset is `.env.example`, explained in [DEVOPS_RUNBOOK.md, section 2](docs/design/DEVOPS_RUNBOOK.md#2-configuration-and-secrets).
 
-The ones that matter most: `MONGO_URI` and `REDIS_URL` (absent means memory mode), `BASE_URL` (public address for short links), `TRUST_PROXY` (how many proxies sit in front; wrong values break rate limiting and IP hashing), `HASH_SALT` (**required, 16+ characters, in production**), `RATE_LIMIT_MAX`, `METRICS_TOKEN`.
+The ones that matter most: `MONGO_URI` and `REDIS_URL` (absent means memory mode), `BASE_URL` (public address for short links), `TRUST_PROXY` (how many proxies sit in front; wrong values break rate limiting and IP hashing), `HASH_SALT` (**required, 16+ characters, in production**), `RATE_LIMIT_MAX`, `READ_RATE_LIMIT_MAX` and `PUBLIC_RATE_LIMIT_MAX` (write, read and public-route limits), `CORS_ORIGIN` (off by default; explicit origins only, `*` is refused at start-up), `METRICS_TOKEN`.
 
 ## Security
 
@@ -312,8 +314,9 @@ The ones that matter most: `MONGO_URI` and `REDIS_URL` (absent means memory mode
 
 | Threat | Mitigation | Where |
 |---|---|---|
-| **SSRF** through the uptime probe (making the server call internal addresses or cloud metadata) | Creation-time rejection of private, loopback, link-local and metadata hosts (including decimal and hex IP forms). At probe time the hostname is resolved and **every** returned address must be public. Redirects are not followed. The body is never read | `src/lib/network.js`, `probe.js` |
-| Abuse of the redirect or API | Per-IP rate limits (100 writes and 600 reads per 15 min); nginx `30 r/s`, burst 60; request bodies limited to 16 KB at nginx and 10 KB of JSON in the app | `rateLimiter.js`, `nginx` |
+| **SSRF** through the uptime probe (making the server call internal addresses or cloud metadata) | Creation-time rejection of private, loopback, link-local and metadata hosts (including decimal and hex IP forms, and IPv6 forms that embed an IPv4 address: IPv4-mapped, NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`, IPv4-compatible `::/96`, which are judged by the embedded address). At probe time the hostname is resolved and **every** returned address must be public. Redirects are not followed. The body is never read. This covers the known cases; it is not a claim that every special-purpose range is covered | `src/lib/network.js`, `probe.js` |
+| Abuse of the redirect or API | Per-IP rate limits in the app: 100 writes and 600 reads per 15 min on `/api`, and 600 requests per minute on the public routes (redirects, pages, the 404 page; not static assets, `/livez`, `/health` or `/metrics`, so health checks and scraping are never throttled); in Compose, nginx adds `30 r/s`, burst 60; request bodies limited to 16 KB at nginx and 10 KB of JSON in the app. The app-level limits are the only per-IP limits on Render, which has no nginx | `rateLimiter.js`, `nginx` |
+| Cross-origin use of the API from other sites | CORS is off by default. `CORS_ORIGIN` accepts only an explicit comma-separated list; `*` makes the app refuse to start. No credentials are allowed cross-origin (the API uses a header token, not cookies) | `config/index.js`, `app.js` |
 | Takeover of someone else's link | Delete and monitor changes need the management key: 24 random bytes, only the SHA-256 stored, compared in constant time, sent in a header (never a URL), redacted from logs | `src/lib/crypto.js` |
 | Open redirect, phishing loops, credential links | Only `http` and `https`; URLs with embedded credentials rejected; links back to URLPulse itself rejected; length limit | `validators.js` |
 | Path shadowing (a short code taking over `/dashboard` or `/assets`) | Reserved words cannot be aliases; anything with a dot is never a code | `validators.js` |
@@ -334,16 +337,17 @@ These are real, accepted trade-offs. They are listed so nobody has to discover t
 2. **Management keys live in the browser's `localStorage`.** Any script running on the site's origin could read them, which is why the CSP forbids inline code and the front end never inserts server data as markup. Clearing site data loses the keys, and there is no recovery: a lost key means the link can no longer be deleted or have its monitor changed (it can still expire).
 3. **Anyone who knows a short code can read its aggregate statistics** (clicks, breakdowns, uptime). No personal data or IP addresses are exposed, but codes are not secret. The management key protects changes, not viewing.
 4. **Click counts are eventually consistent and best effort.** Events are queued in memory: a process crash can lose up to about two seconds of clicks; under a sustained database outage the queue caps at 20,000 events and drops the oldest (counted by `urlpulse_clicks_dropped_total`). Bots and link previews are recorded and labelled "Bot" rather than excluded.
-5. **The rate limiter is per process.** With several replicas the effective limit is up to the replica count times higher, until the limiter uses a shared Redis store (roadmap).
+5. **The rate limiter is per process and in memory.** With several replicas the effective limit is up to the replica count times higher, until the limiter uses a shared Redis store (roadmap). Counters reset when the process restarts (on Render, also after every sleep). Limits are keyed on the address Express reports, so they depend on `TRUST_PROXY` being right (known limitation 9).
 6. **Metrics are per process.** Prometheus scrapes each replica; aggregate with `sum()`. The cache figures on `/api/stats` describe the replica that answered.
 7. **The application connects to MongoDB as the root user** created by the Compose file. A least-privilege user is on the roadmap.
 8. **nginx's access log records client IP addresses** (the application's own logs do not). Rotate or disable it if that matters for your jurisdiction.
-9. **TLS is not on by default.** The stack speaks HTTP until you add HTTPS (runbook section 8). A proxy in front of the bundled nginx needs real-IP configuration, or all visitors look like one address.
+9. **TLS is not on by default.** The stack speaks HTTP until you add HTTPS (runbook section 8). A proxy in front of the bundled nginx needs real-IP configuration, or all visitors look like one address. On Render, HTTPS is provided by Render's edge; the service is configured with `TRUST_PROXY=1`, but **whether the app then sees each visitor's own address has not been verified** (the application logs do not record client addresses). Until it is, treat per-IP rate limiting on Render as unconfirmed. [DEVOPS_RUNBOOK.md, section 13.3](docs/design/DEVOPS_RUNBOOK.md#133-confirm-client-ip-detection-trust_proxy) gives a safe way to check it.
 10. **Single-host deployments have a few seconds of downtime per deploy** (one app container is replaced). Kubernetes avoids this.
 11. **No Alertmanager.** Alert rules fire inside Prometheus, but nothing is sent anywhere.
 12. **A short link's destination cannot be edited**, by design.
 13. **Charts are not keyboard-focusable per mark.** Their data is available as a table, and tooltips are pointer-only. Listed under the roadmap.
 14. **No bundled capacity figures.** Nothing here claims requests per second; run `make load` on your hardware.
+15. **Free-tier hosting limits (Render).** The service sleeps after about 15 minutes without inbound requests, and uptime checks only run while it is awake; the first request after a sleep is slow; the memory cache and rate-limit counters start empty after every restart; the free instance has little memory, so very large bursts of work are not a goal.
 
 ## Scaling
 
@@ -407,14 +411,16 @@ Alongside: **CodeQL** (JavaScript, on push, pull request and weekly) and **Depen
 
 **Action versions** were looked up in each action's own repository at build time (November 2026): `actions/checkout@v7`, `actions/setup-node@v7`, `docker/setup-buildx-action@v4`, `docker/build-push-action@v7`, `docker/login-action@v4`, `docker/setup-qemu-action@v4`, `aquasecurity/trivy-action@v0.36.0`, `github/codeql-action/{init,analyze,upload-sarif}@v4`. Dependabot keeps them current. For stricter supply-chain hygiene, pin them to commit SHAs.
 
-**Caveat, stated plainly:** this workflow has never run on GitHub. It was written against the actions' documentation and checked for valid YAML and for the commands it calls; the first push will be its first execution. See [Verification status](#verification-status).
+**Status.** The workflow has run on GitHub. The run for commit `cf8d186` (2026-11-17) passed lint and tests on Node 22 and 24, the end-to-end tests against the MongoDB and Redis service containers, the dependency audit, the image build, both Trivy scans, the container smoke test and the publish to Docker Hub (read from the GitHub Actions API on 2026-11-20). The `deploy` job was skipped, because `DEPLOY_ENABLED` is not set; **the SSH deploy path has never run**. Earlier runs on 2026-11-17 failed and were fixed before that one. The run does not show what is inside Docker Hub (tags, digests, the multi-architecture manifest were not inspected). CodeQL also passed for that commit; the two alerts raised against it are covered under Security. See [Verification status](#verification-status).
+
+**Render is deployed separately from this pipeline.** The public demo runs on Render, which builds the repository's `Dockerfile` itself, with Auto-Deploy set to "After CI Checks Pass" on `main`: Render deploys a commit only after the GitHub checks for it succeed. The SSH `deploy` job is an optional alternative for a self-managed server and is not what deploys Render.
 
 ## Testing and quality
 
 | Layer | What | Count | Needs |
 |---|---|---|---|
-| Unit | Validators, crypto, SSRF rules, user agent, base-62 codes, config, memory cache, and the services: links, click buffer, probe, monitor, analytics | 112 | nothing |
-| Integration | The real Express app over HTTP (Supertest): creating links, the redirect, management keys, uptime monitoring over HTTP, health endpoints, metrics, stats, security headers and hardening, the static site | 41 | nothing (memory mode) |
+| Unit | Validators, crypto, SSRF rules, user agent, base-62 codes, config, memory cache, and the services: links, click buffer, probe, monitor, analytics | 126 | nothing |
+| Integration | The real Express app over HTTP (Supertest): creating links, the redirect, management keys, uptime monitoring over HTTP, health endpoints, metrics, stats, security headers and hardening, the static site, public-route rate limiting, CORS | 49 | nothing (memory mode) |
 | End-to-end | The Redis adapter; the full stack against real MongoDB (links, clicks, monitor leases, TTL and partial indexes) | 3 and 5 | `REDIS_URL`, `MONGO_URI`; skipped when unset |
 | Smoke | Create, redirect, read, reject without key, delete, verify, metrics, against any base URL | 14 checks | a running app |
 | Load | Redirect path: p50, p95, p99, errors | n/a | a running app |
@@ -422,7 +428,7 @@ Alongside: **CodeQL** (JavaScript, on push, pull request and weekly) and **Depen
 
 Commands: `npm test` (unit and integration), `npm run test:coverage` (what CI enforces), `npm run test:e2e`, `make smoke`, `make load`, `make ui-check`. Lint: `npm run lint` (ESLint 10, flat config; browser code is linted as modules with browser globals).
 
-On the shipped version: 153 unit and integration tests pass; coverage is 93.0% statements, 85.5% branches, 89.2% functions and 95.4% lines.
+Last run (2026-11-20, Node 24.22.3): 175 unit and integration tests pass (126 unit, 49 integration); coverage is 93.15% statements, 86.21% branches, 89.54% functions and 95.49% lines, against the CI thresholds. Counts and coverage change with every commit: re-run `npm run test:coverage` rather than trusting this line.
 
 **Testing philosophy.** Tests run the real application with in-memory adapters, so they exercise the same routes, services and middleware production uses; the swappable adapter boundary is also where real-service e2e tests plug in. Anything that touches time, randomness or the network is injected, so tests are deterministic.
 
@@ -452,7 +458,7 @@ Full specification: [WEBSITE_SPEC.md](docs/design/WEBSITE_SPEC.md) (every page, 
 | Charts | One series colour; thin marks with a rounded data end; hairline grid; tooltip on every mark; a "show as table" view for every chart; legend only with two or more series |
 | Themes | Light and dark; follows the system, remembers a manual choice, applied before first paint |
 
-**Quality bars (all met on the shipped version).** Text and control contrast measured and passing WCAG AA (ink on paper 16.5:1; muted text at least 5:1; control borders at least 3:1); visible focus; skip link; reduced motion respected; native dialog and details; no horizontal scroll at 390 px; about 21 to 26 KB of HTML, CSS and JavaScript (gzip) per page plus a 78 KB font; no third-party requests; no cookies.
+**Quality bars (measured by script and in headless Chromium only: other browsers, screen readers, 320 px width and 200% zoom have not been tested).** Text and control contrast measured and passing WCAG AA (ink on paper 16.5:1; muted text at least 5:1; control borders at least 3:1); visible focus; skip link; reduced motion respected; native dialog and details; no horizontal scroll at 390 px; about 21 to 26 KB of HTML, CSS and JavaScript (gzip) per page plus a 78 KB font; no third-party requests; no cookies.
 
 **How it is built.** Plain HTML, hand-written CSS with design tokens, native ES modules; no framework and no build step. DOM is created with a small `h()` helper and text nodes, so server data can never become markup. Browser storage holds only the links created in this browser (with their management keys) and the theme choice.
 
@@ -463,7 +469,8 @@ Everything operational is in [DEVOPS_RUNBOOK.md](docs/design/DEVOPS_RUNBOOK.md).
 - **Single host:** Docker Compose with the production override. The pipeline publishes an image; `scripts/deploy.sh` pulls it, restarts, waits for health, and **rolls back by itself** if the new version does not become healthy.
 - **Backups:** `scripts/backup-mongo.sh` (compressed dump, keeps the newest 14) and `scripts/restore-mongo.sh`; schedule it and copy archives off the server.
 - **HTTPS:** terminate in nginx (example config included) or in front of it; set `BASE_URL`.
-- **Kubernetes:** `kubectl apply -k k8s/` for replicas and rolling updates.
+- **Render (public demo):** one free Docker web service built from the repository, MongoDB Atlas for storage, in-memory cache, Render's own HTTPS. Set `BASE_URL`, `TRUST_PROXY=1` and the secrets in the Render dashboard. Prometheus and Grafana are not part of it. See [DEVOPS_RUNBOOK.md, section 13](docs/design/DEVOPS_RUNBOOK.md#13-render-deployment).
+- **Kubernetes (optional, not deployed):** `kubectl apply -k k8s/` would give replicas and rolling updates. The manifests are statically checked only; no cluster has run them.
 - **Day to day:** the Grafana dashboard, the Prometheus alert page, the status page and `make smoke`.
 
 ## Roadmap
@@ -505,40 +512,74 @@ Ordered roughly by value for effort.
 
 ## Verification status
 
-What was actually run when this documentation was last checked (2026-11-17), and what was not. This table is meant to be updated, not admired.
+Dated 2026-11-20. Each row says how a claim was checked, so nothing is stronger than its evidence. Categories: **fresh** (run on 2026-11-20 for this update), **CI** (read from the GitHub Actions record), **observed** (read from the Render API and application logs on 2026-11-20), **historical** (checked on an earlier date and not repeated), **static** (read or parsed, not executed), **not tested**, **not implemented**.
 
-**Run and passing**
+### Freshly run on 2026-11-20 (Linux sandbox, Node 24.22.3, no MongoDB)
 
 | Check | Result |
 |---|---|
-| ESLint (all code including scripts and browser modules) | clean |
-| 153 unit and integration tests (6 suites), Node 22.23 | pass; coverage 93.0 / 85.5 / 89.2 / 95.4 % (statements, branches, functions, lines) against thresholds 85 / 75 / 85 / 85 |
-| Redis adapter end-to-end tests against a real Redis 7.0 | 3 of 3 pass |
-| Whole app against a real Redis (manual): cache key and TTL shape, negative marker, hit and miss counters, `DEGRADED` with HTTP 200 while Redis is stopped, redirects still working, return to `UP` within seconds of Redis coming back | as documented |
-| `scripts/smoke-test.sh` against the running app with the metrics check | 14 of 14 |
-| `scripts/ui-check.js` in headless Chromium, 390 px, light and dark | 60 of 60 |
-| `scripts/load-test.js` | runs; no figures published |
-| `docker compose config` for development, development with override, and production; the required-variable guard; `scripts/init-env.sh` | valid and behaving |
-| YAML parse of every Compose, Kubernetes, monitoring and workflow file; Grafana dashboard JSON; `bash -n` on every shell script | valid |
-| Every metric name used by the dashboard and the alert rules, against the live `/metrics` output | all exist |
-| Contrast ratios in the design system | computed by script |
+| ESLint, whole repository | clean |
+| Unit and integration tests, `jest --coverage --runInBand` | 175 of 175 pass (6 suites). Statements 93.15%, branches 86.21%, functions 89.54%, lines 95.49% |
+| New regression tests (public-route rate limit, CORS allowlist and wildcard, commit fallback, IPv6 transition ranges) | 14 of them fail against the previous source and pass now |
+| Redis adapter end-to-end tests against a local Redis | 3 of 3 pass |
+| Full-stack end-to-end suite against MongoDB (5 tests) | **skipped**: no MongoDB in the sandbox (CI runs it, see below) |
+| `scripts/smoke-test.sh` with the metrics check, against the app in memory mode | 14 of 14 |
+| `scripts/ui-check.js`, headless Chromium, 390 px, light and dark | 60 of 60 |
+| `docker compose config` for the base file and for base plus production override | valid |
+| Behaviour on a live local server: public path returns 429 with `RateLimit` headers after the limit while `/assets`, `/livez` return 200; `/health` reports the `RENDER_GIT_COMMIT` value; `CORS_ORIGIN='*'` stops start-up | as described |
 
-**Not run here, and why**
+### Verified by CI (GitHub Actions run for commit `cf8d186`, 2026-11-17, read on 2026-11-20)
 
-| Not verified | Why | Where it will first run |
-|---|---|---|
-| Docker image build, the image `HEALTHCHECK`, multi-arch build | no Docker daemon in the development sandbox | CI `image` and `publish` jobs, or `make build` |
-| Trivy scans | not installed; needs the image | CI `image` job, or `make scan` |
-| The GitHub Actions workflows | never executed | first push |
-| MongoDB adapter and the full-stack end-to-end suite (5 tests): models, unique, partial and TTL indexes, `claimDueMonitors` | no MongoDB server in the sandbox | CI `test` job (service container). **This is the least-tested part of the system: run `npm run test:e2e` against a real MongoDB before relying on it** |
-| Node 24 | sandbox has Node 22 | CI matrix |
-| `deploy.sh`, `backup-mongo.sh`, `restore-mongo.sh` | need Docker; syntax-checked only | first deploy; test restores on a spare machine |
-| Kubernetes manifests | parsed only; not applied or schema-validated | your cluster |
-| nginx configuration, TLS option A | no nginx to run `nginx -t` | first stack start |
-| Prometheus rules (`promtool`), the Grafana dashboard loaded in Grafana | tools not installed | first stack start |
-| Live pages with real MongoDB | not run | first stack start |
+| Check | Result |
+|---|---|
+| Lint, unit and integration tests with coverage thresholds, Node 22 and Node 24 | pass |
+| End-to-end tests against real MongoDB and Redis service containers, Node 22 and Node 24 | pass (so the MongoDB adapter has run against a real server) |
+| Dependency audit (fail on CRITICAL) | pass |
+| Docker image build, Trivy image scan (fail on CRITICAL), Trivy repository scan (advisory), start container, smoke test the container | pass |
+| Publish to Docker Hub (multi-architecture build and push) | job passed. The registry contents were not inspected |
+| CodeQL for the same commit | passed; the two alerts it raised are described under Security |
+| Deploy over SSH | **skipped** (`DEPLOY_ENABLED` not set); never run |
 
-The conclusion to draw: the application logic, the website, the Redis path and the scripts' logic are exercised; the container, pipeline, database adapter and orchestration files are carefully written and statically checked but have yet to run. Expect to fix small things on the first real run of each.
+### Observed on Render (service `urlpulse`, 2026-11-20)
+
+| Fact | Source |
+|---|---|
+| Docker runtime, free plan, region Oregon, branch `main`, health check path `/health`, Auto-Deploy on with trigger "After CI Checks Pass" | Render API |
+| One deploy exists, live, commit `cf8d186` (first build, 2026-11-18) | Render API |
+| Application logs show `storage: mongo`, `cache: memory`, monitoring on, production mode, the scheduler started, requests served | Render logs |
+| Free-tier sleep and wake: the process receives SIGTERM about 15 minutes after the last request, drains, flushes and disconnects from MongoDB, and starts again on the next request | Render logs |
+| Reported commit is `dev` (the image build bakes `BUILD_SHA=dev` in); fixed in this update, takes effect on the next deploy | Render logs |
+| Data persists in MongoDB Atlas (`urls`, `click_logs`) | Atlas Data Explorer screenshots supplied by the owner, and `/health` reporting `mongo: connected` |
+
+### Historical (checked on or before 2026-11-17, superseded by the fresh run where repeated)
+
+153 tests with coverage 93.0 / 85.5 / 89.2 / 95.4 %, smoke 14 of 14, UI 60 of 60, Redis behaviour on a real Redis (cache key and TTL shape, negative marker, `DEGRADED` with HTTP 200 while Redis is stopped and recovery within seconds), every metric name used by the dashboard and the alert rules against live `/metrics` output, contrast ratios in the design system (computed by script), YAML parse of every Compose, Kubernetes, monitoring and workflow file, `bash -n` on every shell script.
+
+### Statically inspected only
+
+| Item | Note |
+|---|---|
+| Kubernetes manifests (`k8s/`) | Parsed; never applied to a cluster or schema-validated against one |
+| nginx configuration and TLS option A | Read; `nginx -t` has not been run, TLS has not been tried |
+| Prometheus rules (`promtool`) and the Grafana dashboard loaded in Grafana | Tools not run; metric names were checked against live output |
+| `deploy.sh`, `backup-mongo.sh`, `restore-mongo.sh` | Syntax-checked; never run end to end |
+
+### Not tested
+
+| Item | Why it matters / how to check |
+|---|---|
+| Atlas database user permissions, Atlas Network Access list, Atlas region | Not readable from the session used for this update (Atlas API access was disabled for the account). Check in the Atlas console; do not assume least privilege |
+| Render per-client IP detection with `TRUST_PROXY=1` | Application logs do not record client addresses. Use the procedure in the runbook, section 13.3 |
+| Docker Hub tags, digests and the multi-arch manifest | Check the Docker Hub repository page, or run `docker buildx imagetools inspect <your-dockerhub-user>/urlpulse:latest` |
+| Restoring a backup | Never run. Test a restore on a spare machine before relying on backups |
+| The full Compose stack (`make up`, nginx, Prometheus, Grafana, alerts) | Not started in this session; the Compose files validate. Run `make up && make smoke` |
+| Phone QR scan of a generated code; cross-browser (only Chromium) and assisted-technology testing; 320 px and 200% zoom | Manual checks |
+| Live sleep and wake timing from a visitor's point of view | Seen only as server log lines |
+| Alert delivery | There is no Alertmanager |
+
+### Not implemented
+
+Alertmanager (alerts are visible in Prometheus and go nowhere), shared Redis-backed rate limiting, Prometheus and Grafana on Render, a least-privilege MongoDB user for the Compose stack, closing the DNS-rebinding gap in probes, any claim that the SSRF rules are exhaustive.
 
 ## Keeping this documentation true
 

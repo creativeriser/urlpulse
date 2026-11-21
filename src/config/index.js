@@ -49,13 +49,28 @@ function loadConfig(env = process.env) {
     throw new Error('HASH_SALT must be set (>= 16 chars) when NODE_ENV=production');
   }
 
+  // CORS is off unless CORS_ORIGIN lists explicit origins. A wildcard is refused
+  // outright: the API is public and header-token based, so an allowlist is the
+  // only configuration that makes sense.
+  const corsOrigins = (env.CORS_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (corsOrigins.includes('*')) {
+    throw new Error('CORS_ORIGIN must be a comma-separated list of explicit origins; "*" is not allowed');
+  }
+
+  // The Dockerfile bakes BUILD_SHA=dev into the image when CI does not pass one
+  // (for example Render building from the repo), so "dev" counts as "unset".
+  const buildSha = env.BUILD_SHA && env.BUILD_SHA !== 'dev' ? env.BUILD_SHA : '';
+
   const trustProxyRaw = env.TRUST_PROXY ?? '0';
   const trustProxy = /^\d+$/.test(trustProxyRaw) ? Number(trustProxyRaw) : trustProxyRaw;
 
   const config = {
     name: pkg.name,
     version: pkg.version,
-    commit: env.BUILD_SHA || 'dev',
+    commit: buildSha || env.RENDER_GIT_COMMIT || 'dev',
     buildDate: env.BUILD_DATE || null,
     nodeEnv,
     isProduction,
@@ -65,7 +80,7 @@ function loadConfig(env = process.env) {
     host: env.HOST || '0.0.0.0',
     baseUrl: (env.BASE_URL || '').replace(/\/+$/, ''),
     trustProxy,
-    corsOrigin: env.CORS_ORIGIN || '',
+    corsOrigin: corsOrigins.join(','),
 
     storage,
     mongoUri,
@@ -83,6 +98,9 @@ function loadConfig(env = process.env) {
       windowMs: int(env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000, { min: 1000 }),
       writeMax: int(env.RATE_LIMIT_MAX, 100, { min: 1 }),
       readMax: int(env.READ_RATE_LIMIT_MAX, 600, { min: 1 }),
+      // Redirects, HTML pages and the 404 page (everything outside /api and /assets).
+      publicMax: int(env.PUBLIC_RATE_LIMIT_MAX, 600, { min: 1 }),
+      publicWindowMs: int(env.PUBLIC_RATE_LIMIT_WINDOW_MS, 60 * 1000, { min: 1000 }),
       enabled: bool(env.RATE_LIMIT_ENABLED, !isTest),
     },
 

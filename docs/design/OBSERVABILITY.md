@@ -16,6 +16,15 @@ Contents: [1 Overview](#1-overview) · [2 Health](#2-health) · [3 Metrics](#3-m
 | **Metrics** | `/metrics` (Prometheus text format) | Prometheus → Grafana dashboard and alert rules |
 | **Logs** | stdout, one JSON object per line | `docker compose logs`, any log shipper |
 
+**Where each signal exists.**
+
+| Deployment | `/livez`, `/health` | `/metrics` | Prometheus, alert rules, Grafana | Logs |
+|---|---|---|---|---|
+| Docker Compose (local) | yes | app serves it; blocked (404) at nginx; scraped by Prometheus inside the Docker network | **yes**: 13 alert rules, provisioned 24-panel dashboard | `docker compose logs` |
+| Render (public demo) | yes (`/health` is also Render's health check path) | served by the app and protected by `METRICS_TOKEN` (401 without the bearer token); **nothing scrapes it** | **no**: Prometheus and Grafana are local-only and are not deployed to Render | Render's log viewer: the same JSON lines |
+
+On Render, health and logs are the monitoring story, plus the product's own status page. Keeping Prometheus and Grafana local is a deliberate scope choice for a free-tier demo, not an omission. `/health` reports `commit` and `version`, which show what is deployed (on Render the commit comes from `RENDER_GIT_COMMIT` once this version is live; older builds showed `dev`).
+
 The system also *is* an observability product: the website's status page and dashboard visualise health and per-link uptime for end users, using the same health model described here.
 
 ## 2. Health
@@ -146,7 +155,7 @@ docker compose logs app | grep '"level":40'      # warnings (4xx, failed probes)
 `monitoring/prometheus/prometheus.yml`:
 
 - Scrape and rule evaluation every **15 s**; `external_labels: {service: urlpulse}`.
-- Job `urlpulse` scrapes `app:5000/metrics` **directly on the internal Docker network**. nginx answers `404` for `/metrics`, so the endpoint is not public. If `METRICS_TOKEN` is set, enable the commented `authorization` block with the token in a file next to the config.
+- Job `urlpulse` scrapes `app:5000/metrics` **directly on the internal Docker network**. nginx answers `404` for `/metrics`, so the endpoint is not public. If `METRICS_TOKEN` is set, enable the commented `authorization` block (`type: Bearer`, `credentials_file`) with the token in a file next to the config; the file must not be committed. Without the block, a token-protected `/metrics` answers Prometheus with 401 and the target shows as DOWN.
 - Job `prometheus` scrapes itself.
 - Retention 15 days (`PROMETHEUS_RETENTION`), data in the `prometheus-data` volume, UI bound to `127.0.0.1:9090` only (reach it with an SSH tunnel).
 - Reload after editing rules without restarting: `curl -X POST http://127.0.0.1:9090/-/reload`.
@@ -234,7 +243,9 @@ sum(rate(urlpulse_probe_total{result="down"}[15m]))
 ## 10. Limitations
 
 - **Single Prometheus, no long-term storage.** 15 days of data on one volume. Use remote write for more.
-- **No bundled Alertmanager** (section 6).
+- **No bundled Alertmanager** (section 6): rules fire inside Prometheus and nothing is delivered anywhere.
+- **Local only.** Prometheus, the alert rules and the Grafana dashboard are part of the Docker Compose stack and are not deployed to Render.
+- **Free-tier hosting gaps.** Where the service sleeps (Render free), uptime probes and metrics stop while it is asleep, and in-process metrics reset on every restart.
 - **Per-process counters.** With several replicas, Prometheus scrapes each; aggregate with `sum()`. The in-app `cache` numbers on `/api/stats` describe the replica that answered.
 - **Probe metrics measure the probe, not the user's experience.** Latency is from the server's network position.
 - **Static Prometheus targets** (`app:5000`). Scaling replicas in Compose needs service discovery (DNS SD or Kubernetes SD); the Kubernetes manifests carry `prometheus.io/*` annotations for that.

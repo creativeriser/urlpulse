@@ -71,7 +71,7 @@ The Mongoose driver is `require`d lazily, so memory mode never loads it. Tests b
 
 1. `loadConfig()` validates the environment and exits with a clear message on bad values.
 2. `createContainer()` connects to MongoDB (up to 10 attempts, 2 s apart, so the app tolerates starting before the database) and Redis.
-3. `createApp()` mounts middleware in this order: request id → request logging → security headers → compression → (optional CORS on `/api`) → metrics → system routes (`/livez`, `/health`, `/metrics`) → JSON API → redirects → static website → 404 → error handler.
+3. `createApp()` mounts middleware in this order: request id → request logging → security headers → compression → (optional CORS on `/api`) → metrics → system routes (`/livez`, `/health`, `/metrics`) → JSON API (with its own write and read limiters) → **public-route rate limiter** → redirects → static website → 404 → error handler. The public limiter sits after the system routes and the API, so health checks and metric scraping are never limited and no request is counted by two limiters.
 4. The server listens, then `startWorkers()` starts the click flusher and the monitor scheduler.
 5. On `SIGTERM`/`SIGINT` (or an unhandled error): set `draining = true` so `/health` returns 503 and load balancers stop sending traffic, stop accepting connections, **stop workers, flush all buffered clicks**, close Redis and MongoDB, exit. A watchdog forces exit after `SHUTDOWN_TIMEOUT_MS` (10 s).
 6. `keepAliveTimeout` is 65 s (above nginx's and cloud load balancers' 60 s idle timeout, preventing sporadic 502s on reused connections).
@@ -168,6 +168,8 @@ Redis holds **only** cache entries. Losing it loses nothing; compose runs it wit
 ### 4.3 In-memory mode
 
 `MemoryUrlRepository`, `MemoryClickRepository` and `MemoryCache` implement the same contracts with Maps. Data is lost on restart (the server logs a warning and the status page says so). Rate-limit counters are always in process memory in every mode (see DOCUMENTATION.md, Scaling).
+
+**Selecting the mode.** `STORAGE` defaults to `mongo` when `MONGO_URI` is set and `memory` otherwise. `STORAGE=mongo` without a `MONGO_URI` is a start-up error, but leaving **both** unset in production silently gives memory storage (and data loss on restart). Production deployments should therefore set `STORAGE=mongo` explicitly, as the Render service does. `CACHE` works the same way: `redis` if a Redis URL is set, otherwise `memory`; `CACHE=memory` is the supported setting on Render, where `/health` then reports `redis: memory`.
 
 ## 5. API reference
 
@@ -309,14 +311,17 @@ Header `X-Manage-Token` required. Body `{ "enabled": true, "intervalSeconds": 30
 
 ### 5.8 Rate limiting
 
-Two buckets per client IP, each in a 15-minute window, answered with the standard `RateLimit` and `RateLimit-Policy` headers (IETF draft 7) and a `429 RATE_LIMITED` body when exceeded:
+Three buckets per client IP, answered with the standard `RateLimit` and `RateLimit-Policy` headers (IETF draft 7) and a `429 RATE_LIMITED` body when exceeded:
 
-| Bucket | Applies to | Default |
-|---|---|---|
-| write | `POST /shorten`, `DELETE`, `PATCH` | 100 |
-| read | link details, QR, analytics, availability, stats | 600 |
+| Bucket | Applies to | Default | Window |
+|---|---|---|---|
+| write | `POST /shorten`, `DELETE`, `PATCH` | 100 | 15 min |
+| read | link details, QR, analytics, availability, stats | 600 | 15 min |
+| public | redirects (`GET /:code`), the website's HTML pages, and the 404 page | 600 | 1 min |
 
-Separate buckets stop a busy dashboard (many cheap reads) from starving link creation. The **redirect route is not rate limited** by the app (nginx applies a coarse per-IP limit in front of it). Limits are env-configurable and disabled in tests.
+Separate buckets stop a busy dashboard (many cheap reads) from starving link creation. The public bucket is mounted after the API router, so no request is counted twice. **Not counted:** files under `/assets/` (static, cacheable, many per page), `/livez`, `/health` and `/metrics`. Behind the Compose nginx the public bucket is a second line of defence (nginx limits to 30 r/s with burst 60 first); on Render there is no nginx, and it is the only per-IP limit on the redirect path.
+
+Limits are env-configurable (`RATE_LIMIT_MAX`, `READ_RATE_LIMIT_MAX`, `PUBLIC_RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS`, `PUBLIC_RATE_LIMIT_WINDOW_MS`), in process memory (per replica, reset on restart) and disabled in tests unless `RATE_LIMIT_ENABLED=true`. The key is `req.ip`, so correctness depends on `TRUST_PROXY` (see section 7).
 
 ### 5.9 Operational endpoints (not part of the API)
 
@@ -356,7 +361,7 @@ Properties and trade-offs:
 - **Scheduling:** `claimDueMonitors` runs one atomic `findOneAndUpdate` per link that is due (`monitor.enabled` and `nextCheckAt <= now`, oldest first) and moves `nextCheckAt` forward by a *lease* of `2 × timeout + 30 s`. Another replica running the same query at the same moment cannot claim the same link, and if a replica dies mid-probe, the lease expires and the link becomes due again. Overlapping ticks within a process collapse into one.
 - **Probe:** `HEAD`; if the server answers 403, 405 or 501, retry as a `GET` with `Range: bytes=0-0`. Redirects are **not followed** (`redirect: 'manual'`): a 3xx proves the server is alive, and following it could bounce the probe into an internal network. The body is never downloaded. Timeout `MONITOR_TIMEOUT_MS` (8 s). User-Agent `URLPulse-Monitor/1.0`.
 - **What counts as up:** status below 400, or 401, 403, 429 (the server is reachable but gating automated clients). Everything else, a timeout, or a network error is a failure, with the reason stored in `lastError`.
-- **SSRF guard:** before connecting, the hostname is resolved and **every** address must be public. Rejected ranges: `0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, multicast and reserved, and IPv6 loopback, unique-local, link-local, multicast and IPv4-mapped forms of all of these. A cheaper DNS-free version of the same check runs at creation time to reject obviously internal URLs early.
+- **SSRF guard:** before connecting, the hostname is resolved and **every** address must be public. Rejected ranges: `0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, multicast and reserved, and IPv6 loopback, unspecified, unique-local, link-local, multicast and IPv4-mapped forms of all of these. IPv6 forms that carry an IPv4 address (IPv4-compatible `::/96`, NAT64 `64:ff9b::/96`, local-use NAT64 `64:ff9b:1::/48`, 6to4 `2002::/16`) are judged by the embedded IPv4 address, and an unparseable IPv6 literal is rejected. This covers the known transition forms; it does not claim every special-purpose range is covered. A cheaper DNS-free version of the same check runs at creation time to reject obviously internal URLs early.
 - **State machine:** one failure = `degraded`, two consecutive = `down`, one success resets to `up`. One blip never reads as an outage.
 - **After each probe:** `checks` and `successes` updated atomically with `$inc`, history appended and trimmed to 48, the next check scheduled `intervalSec` ahead.
 
@@ -377,8 +382,8 @@ All configuration is environment variables, read once at start by the pure funct
 | `NODE_ENV` | `development` | `production` enables strict checks; `test` disables rate limits, monitor and logs |
 | `PORT` / `HOST` | `5000` / `0.0.0.0` | Listen address |
 | `BASE_URL` | (empty) | Public origin used to build short URLs. Empty = derive from the request (`protocol` + `Host`). Set it in production. |
-| `TRUST_PROXY` | `0` | Number of reverse proxies in front of the app (or an Express trust-proxy string). Must be right for correct client IPs: wrong values break rate limiting and IP hashing. |
-| `CORS_ORIGIN` | (off) | Comma-separated origins, or `*`, allowed to call `/api` from a browser. Off by default (same-origin site). |
+| `TRUST_PROXY` | `0` | Number of reverse proxies in front of the app (or an Express trust-proxy string). Must be right for correct client IPs: wrong values break rate limiting and IP hashing. `1` behind the Compose nginx. On Render it is set to `1`, but whether that yields per-visitor addresses is unverified (see DEVOPS_RUNBOOK section 13.3). |
+| `CORS_ORIGIN` | (off) | Comma-separated **explicit** origins allowed to call `/api` from a browser. Off by default (same-origin site). `*` is rejected: the app refuses to start. No credentials are allowed cross-origin. |
 | `STORAGE` | `mongo` if `MONGO_URI` set, else `memory` | `mongo` or `memory` |
 | `MONGO_URI` | (empty) | MongoDB connection string |
 | `CACHE` | `redis` if a Redis URL is set, else `memory` | `redis`, `memory` or `none` |
@@ -389,9 +394,11 @@ All configuration is environment variables, read once at start by the pure funct
 | `MAX_URL_LENGTH` | `2048` | Longest destination URL accepted (16–8192) |
 | `ALLOW_PRIVATE_TARGETS` | `false` | Permit private and loopback destinations (and probing them). Only for isolated demos. |
 | `CODE_LENGTH` | `7` | Random code length (4–16) |
-| `RATE_LIMIT_WINDOW_MS` | `900000` | Window for both buckets |
+| `RATE_LIMIT_WINDOW_MS` | `900000` | Window for the write and read buckets |
 | `RATE_LIMIT_MAX` | `100` | Write requests per window per IP |
 | `READ_RATE_LIMIT_MAX` | `600` | Read requests per window per IP |
+| `PUBLIC_RATE_LIMIT_MAX` | `600` | Public-route requests (redirects, pages, 404) per public window per IP |
+| `PUBLIC_RATE_LIMIT_WINDOW_MS` | `60000` | Window for the public bucket |
 | `RATE_LIMIT_ENABLED` | `true` (off in tests) | |
 | `CLICK_FLUSH_MS` | `2000` | Click buffer flush interval |
 | `CLICK_BATCH_SIZE` | `500` | Events per flush; also triggers an early flush |
@@ -408,7 +415,8 @@ All configuration is environment variables, read once at start by the pure funct
 | `LOG_LEVEL` | `info` (prod), `debug` (dev), `silent` (test) | pino level |
 | `LOG_PRETTY` | on in development only | Human-readable logs (needs the dev dependency `pino-pretty`) |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Forced-exit watchdog during graceful shutdown |
-| `BUILD_SHA`, `BUILD_DATE` | `dev`, none | Injected at image build; shown in `/api/stats`, `/health`, `urlpulse_build_info` |
+| `BUILD_SHA`, `BUILD_DATE` | `dev`, none | Injected at image build (CI and `make build` pass them); shown in `/api/stats`, `/health`, `urlpulse_build_info`. A `BUILD_SHA` of `dev` (the Dockerfile default) counts as unset |
+| `RENDER_GIT_COMMIT` | (set by Render) | Fallback for the reported commit when `BUILD_SHA` is unset or `dev`. Order: `BUILD_SHA` (if not `dev`), then `RENDER_GIT_COMMIT`, then `dev` |
 
 Docker Compose and `.env.example` expose the subset an operator normally changes. Anything above can be added to the `app.environment` block.
 

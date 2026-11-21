@@ -72,7 +72,7 @@ function createApp(container, { publicDir = PUBLIC_DIR } = {}) {
   );
   app.use(compression());
   if (config.corsOrigin) {
-    app.use('/api', cors({ origin: config.corsOrigin === '*' ? '*' : config.corsOrigin.split(',') }));
+    app.use('/api', cors({ origin: config.corsOrigin.split(',') }));
   }
 
   // --- observability -----------------------------------------------------------
@@ -92,6 +92,11 @@ function createApp(container, { publicDir = PUBLIC_DIR } = {}) {
     res.set('Cache-Control', 'no-store');
     return res.status(status).sendFile(path.join(publicDir, status === 410 ? 'expired.html' : '404.html'));
   };
+
+  // --- public routes: one limiter for redirects, pages and the 404 page ----------------
+  // Mounted after /api (which has its own limiters) and the system routes, so no
+  // route is counted twice and health checks / metrics scraping are never limited.
+  app.use(limiters.public);
 
   // --- redirects (hot path) ---------------------------------------------------------
   app.use(createRedirectRouter(container, sendPage));

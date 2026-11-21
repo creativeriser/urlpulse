@@ -94,7 +94,7 @@ Every storage access is wrapped in `try/catch`: if storage is blocked (private m
 |---|---|
 | Long URL (`#url`, large) | Visually hidden label "Long URL", visible placeholder. Accepts input without a scheme: `example.com/page` becomes `https://example.com/page` before sending. Anything with a scheme is left for the server to judge. |
 | Shorten link (`#submit-btn`) | While waiting: `aria-busy` and the label "Shortening…". Restored afterwards. |
-| Custom alias (`#alias`) | Prefix shows the real host (`localhost:8080/`). Hint: "3 to 30 letters, numbers or hyphens. Leave empty for a random code." |
+| Custom alias (`#alias`) | Prefix shows the real host it is served from (for example `localhost:8082/` in the Compose stack). Hint: "3 to 30 letters, numbers or hyphens. Leave empty for a random code." |
 | Link expires (`#expires`) | Never (default), 1, 7, 30, 90 days, 1 year. Hint: "Visitors see an expired page afterwards." |
 | Uptime check (`#watch` switch) | Label "Watch the destination". Enabling reveals the interval select (`#interval`: every minute, 5 minutes (default), 15 minutes, hour, day). If the server reports `features.monitoring === false`, the switch is disabled and its label reads "Uptime checks are turned off on this server". |
 

@@ -10,6 +10,24 @@ describe('loadConfig', () => {
     expect(c.port).toBe(5000);
     expect(c.rateLimit.writeMax).toBe(100); // spec: 100 requests / 15 min
     expect(c.rateLimit.windowMs).toBe(15 * 60 * 1000);
+    expect(c.rateLimit.publicMax).toBe(600);
+    expect(c.rateLimit.publicWindowMs).toBe(60 * 1000);
+    expect(c.corsOrigin).toBe(''); // CORS off by default
+  });
+
+  test('CORS_ORIGIN: trims a list and refuses a wildcard', () => {
+    expect(loadConfig({ NODE_ENV: 'test', CORS_ORIGIN: ' https://a.example , https://b.example ' }).corsOrigin).toBe('https://a.example,https://b.example');
+    expect(() => loadConfig({ NODE_ENV: 'test', CORS_ORIGIN: '*' })).toThrow(/CORS_ORIGIN/);
+    expect(() => loadConfig({ NODE_ENV: 'test', CORS_ORIGIN: 'https://a.example,*' })).toThrow(/CORS_ORIGIN/);
+  });
+
+  test('commit: BUILD_SHA wins, the Dockerfile default "dev" is treated as unset, RENDER_GIT_COMMIT is the fallback', () => {
+    expect(loadConfig({ NODE_ENV: 'test', BUILD_SHA: 'abc123' }).commit).toBe('abc123');
+    expect(loadConfig({ NODE_ENV: 'test', BUILD_SHA: 'abc123', RENDER_GIT_COMMIT: 'def456' }).commit).toBe('abc123');
+    expect(loadConfig({ NODE_ENV: 'test', BUILD_SHA: 'dev', RENDER_GIT_COMMIT: 'def456' }).commit).toBe('def456');
+    expect(loadConfig({ NODE_ENV: 'test', RENDER_GIT_COMMIT: 'def456' }).commit).toBe('def456');
+    expect(loadConfig({ NODE_ENV: 'test' }).commit).toBe('dev');
+    expect(loadConfig({ NODE_ENV: 'test', BUILD_SHA: 'dev' }).commit).toBe('dev');
   });
 
   test('infers mongo + redis from connection settings', () => {
